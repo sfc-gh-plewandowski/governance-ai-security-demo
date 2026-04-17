@@ -1,5 +1,5 @@
 -- ============================================================
--- MODULE 1C — ÉTAPE 1 : ROW ACCESS POLICIES
+-- MODULE 1C — ÉTAPE 5 : ROW ACCESS POLICIES
 -- ============================================================
 -- Une Row Access Policy (RAP) filtre les LIGNES au moment de
 -- la requête. L'utilisateur ne sait même pas que des lignes
@@ -9,7 +9,7 @@
 --   1. Hardcoded : vérifie le rôle directement (rapide, rigide)
 --   2. Mapping table : table d'habilitations (scalable, auditable)
 --
--- Pré-requis : Module 1A + 1B exécutés, rôles créés dans 1B/04
+-- Pré-requis : Modules 1A + 1B + 1C/01-03 exécutés
 -- ============================================================
 
 USE ROLE ACCOUNTADMIN;

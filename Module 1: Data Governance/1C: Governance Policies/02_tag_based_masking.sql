@@ -1,5 +1,5 @@
 -- ============================================================
--- MODULE 1B — ÉTAPE 2 : MASKING BASÉ SUR LES TAGS
+-- MODULE 1C — ÉTAPE 2 : MASKING BASÉ SUR LES TAGS
 -- ============================================================
 -- Au lieu d'attacher chaque politique colonne par colonne,
 -- on attache une politique à un TAG. Toute colonne portant

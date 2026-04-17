@@ -1,5 +1,5 @@
 -- ============================================================
--- MODULE 1B — ÉTAPE 3 : POLITIQUES DE PROJECTION
+-- MODULE 1C — ÉTAPE 3 : POLITIQUES DE PROJECTION
 -- ============================================================
 -- Une projection policy empêche une colonne d'apparaître
 -- dans les résultats. Plus fort que le masking : la colonne
