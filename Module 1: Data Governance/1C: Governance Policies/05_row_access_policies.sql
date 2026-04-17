@@ -9,6 +9,10 @@
 --   1. Hardcoded : vérifie le rôle directement (rapide, rigide)
 --   2. Mapping table : table d'habilitations (scalable, auditable)
 --
+-- NOTE : Les tag-based RAP (ALTER TAG SET ROW ACCESS POLICY)
+-- sont en Private Preview. En attendant la GA, on attache les
+-- RAP table par table.
+--
 -- Pré-requis : Modules 1A + 1B + 1C/01-03 exécutés
 -- ============================================================
 
@@ -19,8 +23,8 @@ USE WAREHOUSE WORKSHOP_WH;
 -- A. PATTERN 1 — RAP HARDCODÉE (démo rapide)
 -- ────────────────────────────────────────────────────────────
 -- Seul SECURITY_ADMIN voit tous les départements.
--- DATA_ANALYST voit uniquement Commercial + Marketing.
--- DATA_ENGINEER voit uniquement Informatique + R&D.
+-- DATA_ANALYST voit uniquement Commercial, Marketing + Communication.
+-- DATA_ENGINEER voit uniquement Informatique, R&D + Production.
 
 CREATE OR REPLACE ROW ACCESS POLICY VOLTAIRE_GOVERNANCE.POLICIES.RAP_DEPARTEMENT
 AS (dept VARCHAR)
@@ -82,6 +86,8 @@ INSERT INTO VOLTAIRE_GOVERNANCE.POLICIES.HABILITATIONS_SECTEUR VALUES
   ('GLOBAL_VIEWER', 'Luxe'),
   ('GLOBAL_VIEWER', 'Distribution');
 
+SELECT * FROM VOLTAIRE_GOVERNANCE.POLICIES.HABILITATIONS_SECTEUR;
+
 GRANT SELECT ON TABLE VOLTAIRE_GOVERNANCE.POLICIES.HABILITATIONS_SECTEUR
   TO ROLE DATA_ANALYST;
 GRANT SELECT ON TABLE VOLTAIRE_GOVERNANCE.POLICIES.HABILITATIONS_SECTEUR
@@ -100,14 +106,20 @@ GRANT USAGE ON SCHEMA VOLTAIRE_GOVERNANCE.POLICIES TO ROLE SECURITY_ADMIN;
 -- ────────────────────────────────────────────────────────────
 
 CREATE OR REPLACE ROW ACCESS POLICY VOLTAIRE_GOVERNANCE.POLICIES.RAP_SECTEUR
-AS (secteur VARCHAR)
-RETURNS BOOLEAN ->
-  IS_ROLE_IN_SESSION('SECURITY_ADMIN')
-  OR EXISTS (
-    SELECT 1 FROM VOLTAIRE_GOVERNANCE.POLICIES.HABILITATIONS_SECTEUR
-    WHERE ROLE_NAME = CURRENT_ROLE()
-      AND SECTEUR_AUTORISE = secteur
-  );
+  -- La policy reçoit la valeur de la colonne SECTEUR_ACTIVITE pour chaque ligne
+  AS (secteur VARCHAR)
+  RETURNS BOOLEAN ->
+    -- Bypass : SECURITY_ADMIN voit tout
+    IS_ROLE_IN_SESSION('SECURITY_ADMIN')
+    -- Sinon : on vérifie que le rôle actif a une habilitation
+    -- pour ce secteur dans la mapping table
+    OR EXISTS (
+      SELECT 1 FROM VOLTAIRE_GOVERNANCE.POLICIES.HABILITATIONS_SECTEUR
+      -- CURRENT_ROLE() = le rôle actif (pas la hiérarchie)
+      WHERE ROLE_NAME = CURRENT_ROLE()
+        -- On compare le secteur autorisé avec la valeur de la ligne
+        AND SECTEUR_AUTORISE = secteur
+    );
 
 ALTER TABLE VOLTAIRE_CRM.CLIENTS.ENTREPRISES
   ADD ROW ACCESS POLICY VOLTAIRE_GOVERNANCE.POLICIES.RAP_SECTEUR
