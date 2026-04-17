@@ -1,5 +1,5 @@
 -- ============================================================
--- MODULE 1D — ÉTAPE 2 : FUTURE GRANTS + MFA + AUDIT PUBLIC
+-- MODULE 1B — ÉTAPE 2 : FUTURE GRANTS + MFA + AUDIT PUBLIC
 -- ============================================================
 -- Les future grants garantissent que toute nouvelle table
 -- hérite automatiquement des permissions. Sans ça, chaque
