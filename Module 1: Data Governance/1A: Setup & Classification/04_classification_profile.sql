@@ -273,7 +273,8 @@ SELECT VOLTAIRE_GOVERNANCE.CLASSIFICATION.PROFIL_PRODUCTION!DESCRIBE();
 -- PARTIE G : VÉRIFIER LES TAGS PRODUITS PAR LE PROFIL
 -- ════════════════════════════════════════════════════════════
 
--- Tester le profil production sur PERSONNEL (avec auto_tag) :
+-- Tester le profil production sur PERSONNEL.
+-- Le profil porte auto_tag: true, donc les tags sont appliqués automatiquement :
 CALL SYSTEM$CLASSIFY(
     'VOLTAIRE_RH.EMPLOYES.PERSONNEL',
     'VOLTAIRE_GOVERNANCE.CLASSIFICATION.PROFIL_PRODUCTION'
@@ -328,9 +329,18 @@ GRANT USAGE ON WAREHOUSE WORKSHOP_WH TO ROLE CLASSIFICATION_ENGINEER;
 -- PARTIE I : CLASSIFIER TOUTES LES TABLES AVEC LE PROFIL
 -- ════════════════════════════════════════════════════════════
 
--- Maintenant on lance le profil de production sur toutes les tables.
--- Les tags SENSIBILITE + RGPD seront posés automatiquement via le tag_map
--- pour chaque colonne détectée par les classifiers natifs + custom.
+-- ⚠️  WORKSHOP ONLY — en production, on ne fait PAS ça table par table.
+-- En production : ALTER DATABASE ... SET CLASSIFICATION_PROFILE (script 05)
+-- et Snowflake classifie tout automatiquement (~22K tables/jour).
+--
+-- Ici on appelle SYSTEM$CLASSIFY manuellement parce que l'auto-classification
+-- a un délai d'~1h après l'activation du profil. On ne peut pas attendre
+-- pendant le workshop, donc on force la classification pour voir les
+-- résultats immédiatement.
+--
+-- SYSTEM$CLASSIFY n'existe qu'au niveau TABLE — il n'y a pas de
+-- SYSTEM$CLASSIFY('DATABASE'). Pour l'échelle, c'est le profil attaché
+-- à la base qui fait le travail.
 CALL SYSTEM$CLASSIFY('VOLTAIRE_RH.EMPLOYES.PERSONNEL',
     'VOLTAIRE_GOVERNANCE.CLASSIFICATION.PROFIL_PRODUCTION');
 CALL SYSTEM$CLASSIFY('VOLTAIRE_CRM.CONTACTS.PERSONNES',
