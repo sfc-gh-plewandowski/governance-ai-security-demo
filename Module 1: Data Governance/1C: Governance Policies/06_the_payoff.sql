@@ -1,12 +1,11 @@
 -- ============================================================
--- MODULE 1B — ÉTAPE 3 : LE MOMENT DE VÉRITÉ (THE PAYOFF)
+-- MODULE 1C — ÉTAPE 6 : LE MOMENT DE VÉRITÉ (THE PAYOFF)
 -- ============================================================
 -- Même requête, 4 rôles différents.
 -- Tout ce qu'on a construit (classification + RBAC + masking
 -- + projection + RAP) se manifeste en une seule démonstration.
 --
--- Pré-requis : Modules 1A + 1B (01+02) + 1C exécutés
--- NOTE : Exécuter APRÈS le Module 1C pour voir l'effet complet
+-- Pré-requis : Modules 1A + 1B + 1C (01-05) exécutés
 -- ============================================================
 
 USE ROLE ACCOUNTADMIN;
