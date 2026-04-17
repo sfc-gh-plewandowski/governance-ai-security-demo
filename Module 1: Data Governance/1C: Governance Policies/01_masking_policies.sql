@@ -1,11 +1,11 @@
 -- ============================================================
--- MODULE 1B — ÉTAPE 1 : POLITIQUES DE MASKING DYNAMIQUE
+-- MODULE 1C — ÉTAPE 1 : POLITIQUES DE MASKING DYNAMIQUE
 -- ============================================================
 -- On crée les politiques de masking AVANT de les attacher.
 -- Chaque politique implémente des niveaux d'accès différents
 -- selon le rôle actif dans la session (IS_ROLE_IN_SESSION).
 --
--- Pré-requis : Module 1A exécuté (bases Voltaire_* + données chargées)
+-- Pré-requis : Modules 1A + 1B exécutés (bases, données, rôles RBAC)
 -- ============================================================
 
 USE ROLE ACCOUNTADMIN;
@@ -123,6 +123,4 @@ RETURNS STRING ->
 -- H. VÉRIFICATION
 -- ────────────────────────────────────────────────────────────
 
-SELECT POLICY_NAME, POLICY_KIND, POLICY_BODY
-FROM VOLTAIRE_GOVERNANCE.INFORMATION_SCHEMA.MASKING_POLICIES
-ORDER BY POLICY_NAME;
+SHOW MASKING POLICIES IN SCHEMA VOLTAIRE_GOVERNANCE.POLICIES;
