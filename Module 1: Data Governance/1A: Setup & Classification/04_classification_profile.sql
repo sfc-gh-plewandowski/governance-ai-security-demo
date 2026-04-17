@@ -1,11 +1,14 @@
 -- ============================================================
--- MODULE 1A — ÉTAPE 4 : PROFIL DE CLASSIFICATION
+-- MODULE 1A — ÉTAPE 4 : CUSTOM CLASSIFIERS & PROFIL
 -- ============================================================
--- Les Classification Profiles automatisent et personnalisent
--- la classification. Au lieu de lancer SYSTEM$CLASSIFY manuellement
--- table par table, on crée un profil qui décrit COMMENT classifier,
--- et on l'attache à une base ou un schéma.
+-- On a vu dans l'étape 3 que SYSTEM$CLASSIFY ne détecte que
+-- ~3 colonnes sur 23. Pour les données françaises, on crée
+-- des CUSTOM CLASSIFIERS avec des regex adaptées aux formats
+-- FR (NIR, IBAN, téléphone +33).
 --
+-- Résultat attendu : passage de 3 → 7 détections automatiques !
+--
+-- Classe : SNOWFLAKE.DATA_PRIVACY.CUSTOM_CLASSIFIER
 -- Classe : SNOWFLAKE.DATA_PRIVACY.CLASSIFICATION_PROFILE
 -- Édition requise : Enterprise ou supérieure
 --
@@ -16,70 +19,92 @@ USE ROLE ACCOUNTADMIN;
 USE WAREHOUSE WORKSHOP_WH;
 
 -- ════════════════════════════════════════════════════════════
--- PARTIE A : PRÉPARER LES PRIVILÈGES
+-- PARTIE A : CUSTOM CLASSIFIERS POUR DONNÉES FRANÇAISES
 -- ════════════════════════════════════════════════════════════
 
--- Dans un vrai environnement, on ne fait PAS tout en ACCOUNTADMIN.
--- On délègue la classification à un rôle dédié.
+-- 1. Classifier : NIR (numéro de Sécurité Sociale française)
+--    Format : 15 chiffres (1 sexe + 2 année + 2 mois + 5 lieu + 3 ordre + 2 clé)
+CREATE OR REPLACE SNOWFLAKE.DATA_PRIVACY.CUSTOM_CLASSIFIER
+    VOLTAIRE_GOVERNANCE.CLASSIFICATION.FR_NIR();
 
-CREATE ROLE IF NOT EXISTS CLASSIFICATION_ENGINEER;
-GRANT ROLE CLASSIFICATION_ENGINEER TO ROLE SYSADMIN;
+CALL VOLTAIRE_GOVERNANCE.CLASSIFICATION.FR_NIR!ADD_REGEX(
+    SEMANTIC_CATEGORY => 'FR_NIR',
+    PRIVACY_CATEGORY => 'IDENTIFIER',
+    VALUE_REGEX => '^[12][0-9]{14}$',
+    COL_NAME_REGEX => '.*NIR.*|.*SECU.*|.*SSN.*',
+    DESCRIPTION => 'Numéro de Sécurité Sociale française (NIR) — 15 chiffres'
+);
 
-GRANT DATABASE ROLE SNOWFLAKE.CLASSIFICATION_ADMIN TO ROLE CLASSIFICATION_ENGINEER;
+-- 2. Classifier : IBAN français
+--    Format : FR suivi de 25 chiffres (27 caractères total)
+CREATE OR REPLACE SNOWFLAKE.DATA_PRIVACY.CUSTOM_CLASSIFIER
+    VOLTAIRE_GOVERNANCE.CLASSIFICATION.FR_IBAN();
 
-GRANT CREATE SNOWFLAKE.DATA_PRIVACY.CLASSIFICATION_PROFILE
-    ON SCHEMA VOLTAIRE_GOVERNANCE.CLASSIFICATION
-    TO ROLE CLASSIFICATION_ENGINEER;
+CALL VOLTAIRE_GOVERNANCE.CLASSIFICATION.FR_IBAN!ADD_REGEX(
+    SEMANTIC_CATEGORY => 'FR_IBAN',
+    PRIVACY_CATEGORY => 'IDENTIFIER',
+    VALUE_REGEX => '^FR[0-9]{25}$',
+    COL_NAME_REGEX => '.*IBAN.*',
+    DESCRIPTION => 'IBAN français — FR + 25 chiffres'
+);
 
-GRANT USAGE ON DATABASE VOLTAIRE_GOVERNANCE TO ROLE CLASSIFICATION_ENGINEER;
-GRANT USAGE ON SCHEMA VOLTAIRE_GOVERNANCE.CLASSIFICATION TO ROLE CLASSIFICATION_ENGINEER;
-GRANT USAGE ON DATABASE VOLTAIRE_CRM TO ROLE CLASSIFICATION_ENGINEER;
-GRANT USAGE ON DATABASE VOLTAIRE_RH TO ROLE CLASSIFICATION_ENGINEER;
-GRANT USAGE ON DATABASE VOLTAIRE_FINANCE TO ROLE CLASSIFICATION_ENGINEER;
-GRANT USAGE ON DATABASE VOLTAIRE_DATALAKE TO ROLE CLASSIFICATION_ENGINEER;
+-- 3. Classifier : Téléphone français
+--    Format : +33 X XX XX XX XX (avec espaces)
+CREATE OR REPLACE SNOWFLAKE.DATA_PRIVACY.CUSTOM_CLASSIFIER
+    VOLTAIRE_GOVERNANCE.CLASSIFICATION.FR_TELEPHONE();
 
-GRANT EXECUTE AUTO CLASSIFICATION ON DATABASE VOLTAIRE_CRM TO ROLE CLASSIFICATION_ENGINEER;
-GRANT EXECUTE AUTO CLASSIFICATION ON DATABASE VOLTAIRE_RH TO ROLE CLASSIFICATION_ENGINEER;
-GRANT EXECUTE AUTO CLASSIFICATION ON DATABASE VOLTAIRE_FINANCE TO ROLE CLASSIFICATION_ENGINEER;
-GRANT EXECUTE AUTO CLASSIFICATION ON DATABASE VOLTAIRE_DATALAKE TO ROLE CLASSIFICATION_ENGINEER;
-
-GRANT APPLY TAG ON ACCOUNT TO ROLE CLASSIFICATION_ENGINEER;
-
-GRANT USAGE ON WAREHOUSE WORKSHOP_WH TO ROLE CLASSIFICATION_ENGINEER;
-
--- Pour le workshop on reste en ACCOUNTADMIN, mais on sait
--- quels privilèges seraient nécessaires en production.
+CALL VOLTAIRE_GOVERNANCE.CLASSIFICATION.FR_TELEPHONE!ADD_REGEX(
+    SEMANTIC_CATEGORY => 'FR_PHONE',
+    PRIVACY_CATEGORY => 'IDENTIFIER',
+    VALUE_REGEX => '^\\+33 [1-9] [0-9]{2} [0-9]{2} [0-9]{2} [0-9]{2}$',
+    COL_NAME_REGEX => '.*TEL.*',
+    DESCRIPTION => 'Téléphone français +33 X XX XX XX XX'
+);
 
 -- ════════════════════════════════════════════════════════════
--- PARTIE B : PROFIL BASIQUE
+-- PARTIE B : VÉRIFIER LES CLASSIFIERS
 -- ════════════════════════════════════════════════════════════
 
--- Le profil le plus simple : classifier immédiatement, tagger auto.
+SELECT VOLTAIRE_GOVERNANCE.CLASSIFICATION.FR_NIR!LIST();
+SELECT VOLTAIRE_GOVERNANCE.CLASSIFICATION.FR_IBAN!LIST();
+SELECT VOLTAIRE_GOVERNANCE.CLASSIFICATION.FR_TELEPHONE!LIST();
+
+-- Test rapide : les regex matchent-elles nos données ?
+SELECT 'NIR' AS TEST,
+    NIR,
+    NIR REGEXP '^[12][0-9]{14}$' AS MATCHES
+FROM VOLTAIRE_RH.EMPLOYES.PERSONNEL LIMIT 3;
+
+SELECT 'IBAN' AS TEST,
+    IBAN,
+    IBAN REGEXP '^FR[0-9]{25}$' AS MATCHES
+FROM VOLTAIRE_RH.EMPLOYES.PERSONNEL LIMIT 3;
+
+SELECT 'TEL' AS TEST,
+    TELEPHONE_PRO,
+    TELEPHONE_PRO REGEXP '^\\+33 [1-9] [0-9]{2} [0-9]{2} [0-9]{2} [0-9]{2}$' AS MATCHES
+FROM VOLTAIRE_RH.EMPLOYES.PERSONNEL LIMIT 3;
+
+-- ════════════════════════════════════════════════════════════
+-- PARTIE C : PROFIL BASIQUE (pour comparer)
+-- ════════════════════════════════════════════════════════════
+
 CREATE OR REPLACE SNOWFLAKE.DATA_PRIVACY.CLASSIFICATION_PROFILE
     VOLTAIRE_GOVERNANCE.CLASSIFICATION.PROFIL_BASIQUE(
     {
         'minimum_object_age_for_classification_days': 0,
         'maximum_classification_validity_days': 30,
-        'auto_tag': true,
-        'classify_views': false
+        'auto_tag': true
     }
 );
 
--- Inspecter le profil :
 SELECT VOLTAIRE_GOVERNANCE.CLASSIFICATION.PROFIL_BASIQUE!DESCRIBE();
 
 -- ════════════════════════════════════════════════════════════
--- PARTIE C : PROFIL FRANCE — CATÉGORIES SPÉCIFIQUES
+-- PARTIE D : PROFIL FRANCE AVEC CUSTOM CLASSIFIERS
 -- ════════════════════════════════════════════════════════════
 
--- On peut restreindre la classification aux catégories pertinentes
--- pour la France. Snowflake supporte country_codes: ['FR'] pour :
---   • NATIONAL_IDENTIFIER → FR_CNI, FR_SSN (numéro INSEE / NIR)
---   • PASSPORT → FR_PASSPORT
---   • DRIVERS_LICENSE → FR_DRIVERS_LICENSE
---   • TAX_IDENTIFIER → FR_TAX_ID_NUMBER (NIF)
---   • Plus les catégories globales : NAME, EMAIL, PHONE_NUMBER, etc.
-
+-- Étape 1 : créer le profil avec les catégories FR standard
 CREATE OR REPLACE SNOWFLAKE.DATA_PRIVACY.CLASSIFICATION_PROFILE
     VOLTAIRE_GOVERNANCE.CLASSIFICATION.PROFIL_FRANCE(
     {
@@ -104,16 +129,76 @@ CREATE OR REPLACE SNOWFLAKE.DATA_PRIVACY.CLASSIFICATION_PROFILE
     }
 );
 
+-- Étape 2 : attacher les custom classifiers au profil
+-- (on utilise SET_CUSTOM_CLASSIFIERS car les LIST() ne peuvent
+-- pas être intégrés directement dans le JSON de CREATE)
+CALL VOLTAIRE_GOVERNANCE.CLASSIFICATION.PROFIL_FRANCE!SET_CUSTOM_CLASSIFIERS(
+    {
+        'VOLTAIRE_GOVERNANCE.CLASSIFICATION.FR_NIR': VOLTAIRE_GOVERNANCE.CLASSIFICATION.FR_NIR!LIST(),
+        'VOLTAIRE_GOVERNANCE.CLASSIFICATION.FR_IBAN': VOLTAIRE_GOVERNANCE.CLASSIFICATION.FR_IBAN!LIST(),
+        'VOLTAIRE_GOVERNANCE.CLASSIFICATION.FR_TELEPHONE': VOLTAIRE_GOVERNANCE.CLASSIFICATION.FR_TELEPHONE!LIST()
+    }
+);
+
 SELECT VOLTAIRE_GOVERNANCE.CLASSIFICATION.PROFIL_FRANCE!DESCRIBE();
 
 -- ════════════════════════════════════════════════════════════
--- PARTIE D : PROFIL AVEC TAG MAP — CLASSIFICATION → TAGS MÉTIER
+-- PARTIE E : TESTER — AVANT / APRÈS CUSTOM CLASSIFIERS
 -- ════════════════════════════════════════════════════════════
 
--- Le tag_map relie les résultats de classification aux tags
--- personnalisés créés dans 01_account_setup (SENSIBILITE, RGPD).
--- Quand Snowflake trouve un NAME → on pose automatiquement
--- SENSIBILITE = 'TRES_SENSIBLE' et RGPD = 'IDENTIFIANT_DIRECT'.
+-- AVANT (profil basique, sans custom classifiers) :
+CALL SYSTEM$CLASSIFY(
+    'VOLTAIRE_RH.EMPLOYES.PERSONNEL',
+    'VOLTAIRE_GOVERNANCE.CLASSIFICATION.PROFIL_BASIQUE'
+);
+
+SELECT
+    f.KEY AS NOM_COLONNE,
+    f.VALUE:recommendation:semantic_category::STRING AS CATEGORIE,
+    f.VALUE:recommendation:confidence::STRING AS CONFIANCE
+FROM TABLE(RESULT_SCAN(LAST_QUERY_ID())) r,
+     TABLE(FLATTEN(INPUT => r.$1:classification_result)) f
+WHERE f.VALUE:recommendation:semantic_category IS NOT NULL
+ORDER BY NOM_COLONNE;
+
+-- ┌─────────────────────────────────────────────────────────┐
+-- │  AVANT : ~3 colonnes (EMAIL_PRO, PASSEPORT, PERMIS)    │
+-- └─────────────────────────────────────────────────────────┘
+
+-- APRÈS (profil France, avec custom classifiers) :
+CALL SYSTEM$CLASSIFY(
+    'VOLTAIRE_RH.EMPLOYES.PERSONNEL',
+    'VOLTAIRE_GOVERNANCE.CLASSIFICATION.PROFIL_FRANCE'
+);
+
+SELECT
+    f.KEY AS NOM_COLONNE,
+    f.VALUE:recommendation:semantic_category::STRING AS CATEGORIE,
+    f.VALUE:recommendation:privacy_category::STRING AS VIE_PRIVEE,
+    f.VALUE:recommendation:confidence::STRING AS CONFIANCE,
+    f.VALUE:recommendation:coverage::NUMBER AS COUVERTURE
+FROM TABLE(RESULT_SCAN(LAST_QUERY_ID())) r,
+     TABLE(FLATTEN(INPUT => r.$1:classification_result)) f
+WHERE f.VALUE:recommendation:semantic_category IS NOT NULL
+ORDER BY NOM_COLONNE;
+
+-- ┌─────────────────────────────────────────────────────────┐
+-- │  APRÈS : 7 colonnes détectées !                         │
+-- │                                                         │
+-- │  ✅ EMAIL_PRO         → EMAIL (natif)                   │
+-- │  ✅ IBAN              → FR_IBAN (custom)                │
+-- │  ✅ NIR               → FR_NIR (custom)                 │
+-- │  ✅ NUMERO_PASSEPORT  → PASSPORT (natif)                │
+-- │  ✅ PERMIS_CONDUIRE   → DRIVERS_LICENSE (natif)         │
+-- │  ✅ TELEPHONE_PERSO   → FR_PHONE (custom)               │
+-- │  ✅ TELEPHONE_PRO     → FR_PHONE (custom)               │
+-- │                                                         │
+-- │  +4 colonnes grâce aux custom classifiers !             │
+-- └─────────────────────────────────────────────────────────┘
+
+-- ════════════════════════════════════════════════════════════
+-- PARTIE F : PROFIL PRODUCTION AVEC TAG MAP
+-- ════════════════════════════════════════════════════════════
 
 CREATE OR REPLACE SNOWFLAKE.DATA_PRIVACY.CLASSIFICATION_PROFILE
     VOLTAIRE_GOVERNANCE.CLASSIFICATION.PROFIL_PRODUCTION(
@@ -130,6 +215,7 @@ CREATE OR REPLACE SNOWFLAKE.DATA_PRIVACY.CLASSIFICATION_PROFILE
             {'category': 'PAYMENT_CARD'},
             {'category': 'DATE_OF_BIRTH'},
             {'category': 'SALARY'},
+            {'category': 'GENDER'},
             {'category': 'NATIONAL_IDENTIFIER', 'country_codes': ['FR']},
             {'category': 'PASSPORT', 'country_codes': ['FR']},
             {'category': 'DRIVERS_LICENSE', 'country_codes': ['FR']},
@@ -140,12 +226,12 @@ CREATE OR REPLACE SNOWFLAKE.DATA_PRIVACY.CLASSIFICATION_PROFILE
                 {
                     'tag_name': 'VOLTAIRE_GOVERNANCE.TAGS.SENSIBILITE',
                     'tag_value': 'TRES_SENSIBLE',
-                    'semantic_categories': ['NAME', 'NATIONAL_IDENTIFIER', 'PASSPORT', 'BANK_ACCOUNT', 'PAYMENT_CARD']
+                    'semantic_categories': ['NAME', 'NATIONAL_IDENTIFIER', 'PASSPORT', 'BANK_ACCOUNT', 'PAYMENT_CARD', 'FR_NIR', 'FR_IBAN']
                 },
                 {
                     'tag_name': 'VOLTAIRE_GOVERNANCE.TAGS.SENSIBILITE',
                     'tag_value': 'SENSIBLE',
-                    'semantic_categories': ['EMAIL', 'PHONE_NUMBER', 'DRIVERS_LICENSE', 'TAX_IDENTIFIER', 'DATE_OF_BIRTH']
+                    'semantic_categories': ['EMAIL', 'PHONE_NUMBER', 'DRIVERS_LICENSE', 'TAX_IDENTIFIER', 'DATE_OF_BIRTH', 'FR_PHONE']
                 },
                 {
                     'tag_name': 'VOLTAIRE_GOVERNANCE.TAGS.SENSIBILITE',
@@ -155,12 +241,12 @@ CREATE OR REPLACE SNOWFLAKE.DATA_PRIVACY.CLASSIFICATION_PROFILE
                 {
                     'tag_name': 'VOLTAIRE_GOVERNANCE.TAGS.RGPD',
                     'tag_value': 'IDENTIFIANT_DIRECT',
-                    'semantic_categories': ['NAME', 'EMAIL', 'NATIONAL_IDENTIFIER', 'PASSPORT', 'BANK_ACCOUNT', 'PAYMENT_CARD']
+                    'semantic_categories': ['NAME', 'EMAIL', 'NATIONAL_IDENTIFIER', 'PASSPORT', 'BANK_ACCOUNT', 'PAYMENT_CARD', 'FR_NIR', 'FR_IBAN']
                 },
                 {
                     'tag_name': 'VOLTAIRE_GOVERNANCE.TAGS.RGPD',
                     'tag_value': 'QUASI_IDENTIFIANT',
-                    'semantic_categories': ['PHONE_NUMBER', 'DATE_OF_BIRTH', 'DRIVERS_LICENSE', 'TAX_IDENTIFIER']
+                    'semantic_categories': ['PHONE_NUMBER', 'DATE_OF_BIRTH', 'DRIVERS_LICENSE', 'TAX_IDENTIFIER', 'FR_PHONE']
                 },
                 {
                     'tag_name': 'VOLTAIRE_GOVERNANCE.TAGS.RGPD',
@@ -172,45 +258,31 @@ CREATE OR REPLACE SNOWFLAKE.DATA_PRIVACY.CLASSIFICATION_PROFILE
     }
 );
 
+-- Attacher les custom classifiers au profil de production aussi :
+CALL VOLTAIRE_GOVERNANCE.CLASSIFICATION.PROFIL_PRODUCTION!SET_CUSTOM_CLASSIFIERS(
+    {
+        'VOLTAIRE_GOVERNANCE.CLASSIFICATION.FR_NIR': VOLTAIRE_GOVERNANCE.CLASSIFICATION.FR_NIR!LIST(),
+        'VOLTAIRE_GOVERNANCE.CLASSIFICATION.FR_IBAN': VOLTAIRE_GOVERNANCE.CLASSIFICATION.FR_IBAN!LIST(),
+        'VOLTAIRE_GOVERNANCE.CLASSIFICATION.FR_TELEPHONE': VOLTAIRE_GOVERNANCE.CLASSIFICATION.FR_TELEPHONE!LIST()
+    }
+);
+
 SELECT VOLTAIRE_GOVERNANCE.CLASSIFICATION.PROFIL_PRODUCTION!DESCRIBE();
 
 -- ════════════════════════════════════════════════════════════
--- PARTIE E : TESTER LE PROFIL AVANT DE L'ACTIVER
+-- PARTIE G : VÉRIFIER LES TAGS PRODUITS PAR LE PROFIL
 -- ════════════════════════════════════════════════════════════
 
--- On peut tester un profil sur une table spécifique avec SYSTEM$CLASSIFY.
--- Cela applique la logique du profil (catégories FR, tag_map)
--- sans activer la classification automatique.
-
+-- Tester le profil production sur PERSONNEL (avec auto_tag) :
 CALL SYSTEM$CLASSIFY(
     'VOLTAIRE_RH.EMPLOYES.PERSONNEL',
     'VOLTAIRE_GOVERNANCE.CLASSIFICATION.PROFIL_PRODUCTION'
 );
 
--- Parser le résultat pour voir les tags métier appliqués :
--- On utilise RESULT_SCAN pour récupérer le JSON du CALL précédent.
+-- Vérifier les tags métier appliqués :
 SELECT
-    f.KEY AS NOM_COLONNE,
-    f.VALUE:recommendation:semantic_category::STRING AS CATEGORIE,
-    f.VALUE:recommendation:confidence::STRING AS CONFIANCE,
-    t.VALUE:tag_name::STRING AS TAG_APPLIQUE,
-    t.VALUE:tag_value::STRING AS VALEUR_TAG,
-    t.VALUE:tag_applied::BOOLEAN AS APPLIQUE
-FROM TABLE(RESULT_SCAN(LAST_QUERY_ID())) r,
-     TABLE(FLATTEN(INPUT => r.$1:classification_result)) f,
-     TABLE(FLATTEN(INPUT => f.VALUE:recommendation:tags)) t
-ORDER BY NOM_COLONNE, TAG_APPLIQUE;
-
--- ════════════════════════════════════════════════════════════
--- PARTIE F : VÉRIFIER LES TAGS APPLIQUÉS
--- ════════════════════════════════════════════════════════════
-
--- Après le test avec SYSTEM$CLASSIFY + profil, les tags devraient
--- inclure nos tags personnalisés SENSIBILITE et RGPD.
-
-SELECT
-    TAG_NAME,
     COLUMN_NAME,
+    TAG_NAME,
     TAG_VALUE
 FROM TABLE(
     VOLTAIRE_RH.INFORMATION_SCHEMA.TAG_REFERENCES_ALL_COLUMNS(
@@ -219,3 +291,35 @@ FROM TABLE(
 )
 WHERE TAG_NAME IN ('SENSIBILITE', 'RGPD', 'SEMANTIC_CATEGORY', 'PRIVACY_CATEGORY')
 ORDER BY COLUMN_NAME, TAG_NAME;
+
+-- ════════════════════════════════════════════════════════════
+-- PARTIE H : PRIVILÈGES EN PRODUCTION
+-- ════════════════════════════════════════════════════════════
+
+CREATE ROLE IF NOT EXISTS CLASSIFICATION_ENGINEER;
+GRANT ROLE CLASSIFICATION_ENGINEER TO ROLE SYSADMIN;
+
+GRANT DATABASE ROLE SNOWFLAKE.CLASSIFICATION_ADMIN TO ROLE CLASSIFICATION_ENGINEER;
+
+GRANT CREATE SNOWFLAKE.DATA_PRIVACY.CLASSIFICATION_PROFILE
+    ON SCHEMA VOLTAIRE_GOVERNANCE.CLASSIFICATION
+    TO ROLE CLASSIFICATION_ENGINEER;
+
+GRANT CREATE SNOWFLAKE.DATA_PRIVACY.CUSTOM_CLASSIFIER
+    ON SCHEMA VOLTAIRE_GOVERNANCE.CLASSIFICATION
+    TO ROLE CLASSIFICATION_ENGINEER;
+
+GRANT USAGE ON DATABASE VOLTAIRE_GOVERNANCE TO ROLE CLASSIFICATION_ENGINEER;
+GRANT USAGE ON SCHEMA VOLTAIRE_GOVERNANCE.CLASSIFICATION TO ROLE CLASSIFICATION_ENGINEER;
+GRANT USAGE ON DATABASE VOLTAIRE_CRM TO ROLE CLASSIFICATION_ENGINEER;
+GRANT USAGE ON DATABASE VOLTAIRE_RH TO ROLE CLASSIFICATION_ENGINEER;
+GRANT USAGE ON DATABASE VOLTAIRE_FINANCE TO ROLE CLASSIFICATION_ENGINEER;
+GRANT USAGE ON DATABASE VOLTAIRE_DATALAKE TO ROLE CLASSIFICATION_ENGINEER;
+
+GRANT EXECUTE AUTO CLASSIFICATION ON DATABASE VOLTAIRE_CRM TO ROLE CLASSIFICATION_ENGINEER;
+GRANT EXECUTE AUTO CLASSIFICATION ON DATABASE VOLTAIRE_RH TO ROLE CLASSIFICATION_ENGINEER;
+GRANT EXECUTE AUTO CLASSIFICATION ON DATABASE VOLTAIRE_FINANCE TO ROLE CLASSIFICATION_ENGINEER;
+GRANT EXECUTE AUTO CLASSIFICATION ON DATABASE VOLTAIRE_DATALAKE TO ROLE CLASSIFICATION_ENGINEER;
+
+GRANT APPLY TAG ON ACCOUNT TO ROLE CLASSIFICATION_ENGINEER;
+GRANT USAGE ON WAREHOUSE WORKSHOP_WH TO ROLE CLASSIFICATION_ENGINEER;
