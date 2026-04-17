@@ -1,126 +1,84 @@
 -- ============================================================
 -- MODULE 1C — ÉTAPE 1 : POLITIQUES DE MASKING DYNAMIQUE
 -- ============================================================
--- On crée les politiques de masking AVANT de les attacher.
--- Chaque politique implémente des niveaux d'accès différents
--- selon le rôle actif dans la session (IS_ROLE_IN_SESSION).
+-- Architecture : UNE politique par type de données, attachée au
+-- TAG (jamais directement aux colonnes). La politique lit la
+-- valeur de SEMANTIC_CATEGORY pour adapter le masking.
 --
--- Pré-requis : Modules 1A + 1B exécutés (bases, données, rôles RBAC)
+-- STRING  → MASK_PII_STRING  (branche sur SEMANTIC_CATEGORY)
+-- DATE    → MASK_PII_DATE    (année seulement pour l'analyste)
+-- NUMBER  → MASK_PII_NUMBER  (arrondi ou plafond selon le cas)
+--
+-- Pré-requis : Modules 1A + 1B exécutés (bases, données, tags, rôles)
 -- ============================================================
 
 USE ROLE ACCOUNTADMIN;
 USE WAREHOUSE WORKSHOP_WH;
 
 -- ────────────────────────────────────────────────────────────
--- A. POLITIQUE : TEXTE PII GÉNÉRIQUE
+-- A. POLITIQUE STRING — MASKING ADAPTÉ PAR CATÉGORIE SÉMANTIQUE
 -- ────────────────────────────────────────────────────────────
--- Utilisée pour : NIR, passeports, permis de conduire, SIRET
--- Tiers : accès complet → hash (pour jointures) → masqué total
+-- La politique lit le tag SEMANTIC_CATEGORY sur la colonne pour
+-- savoir QUEL type de donnée elle protège : EMAIL, FR_PHONE,
+-- FR_IBAN, NAME, PASSPORT, etc. Chaque catégorie a son masking
+-- partiel (domaine visible pour les emails, 4 derniers chiffres
+-- pour les téléphones, etc.).
+--
+-- SECURITY_ADMIN voit tout. DATA_ANALYST voit le masking partiel.
+-- Tout le monde voit '***MASQUÉ***'.
 
 CREATE OR REPLACE MASKING POLICY VOLTAIRE_GOVERNANCE.POLICIES.MASK_PII_STRING
 AS (val STRING)
 RETURNS STRING ->
   CASE
     WHEN IS_ROLE_IN_SESSION('SECURITY_ADMIN') THEN val
-    WHEN IS_ROLE_IN_SESSION('DATA_ANALYST') THEN SHA2(val)
+    WHEN IS_ROLE_IN_SESSION('DATA_ANALYST') THEN
+      CASE SYSTEM$GET_TAG_ON_CURRENT_COLUMN('SNOWFLAKE.CORE.SEMANTIC_CATEGORY')
+        WHEN 'EMAIL'
+          THEN REGEXP_REPLACE(val, '.+@', '****@')
+        WHEN 'FR_PHONE'
+          THEN CONCAT(LEFT(val, 6), ' ** ** ', RIGHT(val, 5))
+        WHEN 'FR_IBAN'
+          THEN CONCAT(LEFT(val, 4), '****', RIGHT(val, 4))
+        ELSE SHA2(val)
+      END
     ELSE '***MASQUÉ***'
   END;
 
 -- ────────────────────────────────────────────────────────────
--- B. POLITIQUE : ADRESSES EMAIL
+-- B. POLITIQUE DATE — TRONCATURE À L'ANNÉE
 -- ────────────────────────────────────────────────────────────
--- Tiers : complet → partiel (domaine visible) → masqué total
--- Le domaine reste visible pour les analystes (utile pour le tri)
+-- Pour les dates de naissance, l'analyste voit l'année sans
+-- le jour ni le mois. Utile pour l'analyse démographique
+-- sans exposer la date exacte.
 
-CREATE OR REPLACE MASKING POLICY VOLTAIRE_GOVERNANCE.POLICIES.MASK_EMAIL
-AS (val STRING)
-RETURNS STRING ->
-  CASE
-    WHEN IS_ROLE_IN_SESSION('SECURITY_ADMIN') THEN val
-    WHEN IS_ROLE_IN_SESSION('DATA_ANALYST') THEN
-      REGEXP_REPLACE(val, '.+@', '****@')
-    ELSE '***MASQUÉ***'
-  END;
-
--- ────────────────────────────────────────────────────────────
--- C. POLITIQUE : NUMÉROS DE TÉLÉPHONE
--- ────────────────────────────────────────────────────────────
--- Tiers : complet → 4 derniers chiffres → masqué total
--- Pattern FR : +33 6 12 34 56 78 → +33 6 ** ** 56 78
-
-CREATE OR REPLACE MASKING POLICY VOLTAIRE_GOVERNANCE.POLICIES.MASK_TELEPHONE
-AS (val STRING)
-RETURNS STRING ->
-  CASE
-    WHEN IS_ROLE_IN_SESSION('SECURITY_ADMIN') THEN val
-    WHEN IS_ROLE_IN_SESSION('DATA_ANALYST') THEN
-      CONCAT(LEFT(val, 6), ' ** ** ', RIGHT(val, 5))
-    ELSE '***MASQUÉ***'
-  END;
-
--- ────────────────────────────────────────────────────────────
--- D. POLITIQUE : MONTANTS FINANCIERS
--- ────────────────────────────────────────────────────────────
--- Tiers : montant exact → tranche (arrondi à 10K) → NULL
--- L'analyste voit la tranche pour le reporting, pas le montant exact
-
-CREATE OR REPLACE MASKING POLICY VOLTAIRE_GOVERNANCE.POLICIES.MASK_MONTANT
-AS (val NUMBER(12,2))
-RETURNS NUMBER(12,2) ->
-  CASE
-    WHEN IS_ROLE_IN_SESSION('SECURITY_ADMIN') THEN val
-    WHEN IS_ROLE_IN_SESSION('DATA_ANALYST') THEN
-      ROUND(val, -4)
-    ELSE NULL
-  END;
-
--- ────────────────────────────────────────────────────────────
--- E. POLITIQUE : SALAIRES (NUMBER 10,2)
--- ────────────────────────────────────────────────────────────
--- Tiers : montant exact → plafonné à 100K → NULL
-
-CREATE OR REPLACE MASKING POLICY VOLTAIRE_GOVERNANCE.POLICIES.MASK_SALAIRE
-AS (val NUMBER(10,2))
-RETURNS NUMBER(10,2) ->
-  CASE
-    WHEN IS_ROLE_IN_SESSION('SECURITY_ADMIN') THEN val
-    WHEN IS_ROLE_IN_SESSION('DATA_ANALYST') THEN
-      CASE WHEN val > 100000 THEN 100000.00 ELSE val END
-    ELSE NULL
-  END;
-
--- ────────────────────────────────────────────────────────────
--- F. POLITIQUE : DATES (date de naissance, etc.)
--- ────────────────────────────────────────────────────────────
--- Tiers : date exacte → année seulement → NULL
-
-CREATE OR REPLACE MASKING POLICY VOLTAIRE_GOVERNANCE.POLICIES.MASK_DATE_SENSIBLE
+CREATE OR REPLACE MASKING POLICY VOLTAIRE_GOVERNANCE.POLICIES.MASK_PII_DATE
 AS (val DATE)
 RETURNS DATE ->
   CASE
     WHEN IS_ROLE_IN_SESSION('SECURITY_ADMIN') THEN val
-    WHEN IS_ROLE_IN_SESSION('DATA_ANALYST') THEN
-      DATE_TRUNC('year', val)
+    WHEN IS_ROLE_IN_SESSION('DATA_ANALYST') THEN DATE_TRUNC('year', val)
     ELSE NULL
   END;
 
 -- ────────────────────────────────────────────────────────────
--- G. POLITIQUE : IBAN
+-- C. POLITIQUE NUMBER — ARRONDI POUR L'ANALYSTE
 -- ────────────────────────────────────────────────────────────
--- Tiers : complet → pays + 4 derniers → masqué total
+-- L'analyste voit la tranche (arrondi à 1000) pour le reporting
+-- agrégé. Le montant exact est masqué. Les salaires au-dessus
+-- de 100K sont plafonnés.
 
-CREATE OR REPLACE MASKING POLICY VOLTAIRE_GOVERNANCE.POLICIES.MASK_IBAN
-AS (val STRING)
-RETURNS STRING ->
+CREATE OR REPLACE MASKING POLICY VOLTAIRE_GOVERNANCE.POLICIES.MASK_PII_NUMBER
+AS (val NUMBER(12,2))
+RETURNS NUMBER(12,2) ->
   CASE
     WHEN IS_ROLE_IN_SESSION('SECURITY_ADMIN') THEN val
-    WHEN IS_ROLE_IN_SESSION('DATA_ANALYST') THEN
-      CONCAT(LEFT(val, 4), '****', RIGHT(val, 4))
-    ELSE '***MASQUÉ***'
+    WHEN IS_ROLE_IN_SESSION('DATA_ANALYST') THEN ROUND(val, -3)
+    ELSE NULL
   END;
 
 -- ────────────────────────────────────────────────────────────
--- H. VÉRIFICATION
+-- D. VÉRIFICATION
 -- ────────────────────────────────────────────────────────────
 
 SHOW MASKING POLICIES IN SCHEMA VOLTAIRE_GOVERNANCE.POLICIES;

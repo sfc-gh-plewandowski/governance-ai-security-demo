@@ -50,9 +50,9 @@ LIMIT 10;
 
 -- Attendu :
 --   • LIGNES : seulement Commercial, Marketing, Communication (RAP)
---   • PERMIS_CONDUIRE : hash SHA2 (tag-based masking)
---   • IBAN : hash SHA2 (tag-based masking)
---   • DATE_NAISSANCE : 1er janvier de l'année (MASK_DATE_SENSIBLE)
+--   • PERMIS_CONDUIRE : hash SHA2 (MASK_PII_STRING via tag SENSIBILITE)
+--   • IBAN : FR76****XXXX (masking partiel FR_IBAN via tag)
+--   • DATE_NAISSANCE : 1er janvier de l'année (MASK_PII_DATE via tag)
 
 -- ────────────────────────────────────────────────────────────
 -- D. DATA_ENGINEER — MASKING + RAP (différents périmètres)
