@@ -4,8 +4,8 @@
 -- Ce module couvre :
 --   A. Où l'inférence s'exécute (géographie & RGPD)
 --   B. Quels modèles sont disponibles (allowlist compte)
---   C. Premier appel Cortex
---   D. Preuve que la gouvernance s'applique avant le modèle
+--   C. Le masking s'applique avant le modèle (colonnes maskées)
+--   D. La RAP s'applique avant le modèle (domaines invisibles)
 --
 -- Pré-requis : Modules 1A–1D exécutés
 -- ============================================================
@@ -71,26 +71,10 @@ ALTER ACCOUNT SET CORTEX_MODELS_ALLOWLIST = 'ALL';
 
 
 -- ════════════════════════════════════════════════════════════
--- C. PREMIER APPEL — CORTEX.COMPLETE
+-- C. LE MASKING S'APPLIQUE AVANT LE MODÈLE
 -- ════════════════════════════════════════════════════════════
--- Le flux d'inférence :
---   User → Role → SQL (SELECT + CORTEX.COMPLETE)
---   → Gouvernance appliquée (masking, RAP, projection)
---   → Données gouvernées envoyées au modèle
---   → Réponse retournée au user
-
-SELECT SNOWFLAKE.CORTEX.COMPLETE(
-  'mistral-large2',
-  'Explique en 2 phrases ce qu''est le masking dynamique dans Snowflake.'
-) AS REPONSE_AI;
-
-
--- ════════════════════════════════════════════════════════════
--- D. LE PONT — LA GOUVERNANCE S'APPLIQUE AVANT LE MODÈLE
--- ════════════════════════════════════════════════════════════
--- Même requête AI sur les mêmes données.
 -- Le modèle reçoit ce que le RÔLE voit — pas les données brutes.
--- C'est le pont entre le matin (Dimension 1) et l'après-midi.
+-- Flux : User → Role → SQL + gouvernance → données maskées → modèle
 
 USE SECONDARY ROLES NONE;
 
@@ -125,10 +109,60 @@ WHERE EMPLOYE_ID = 3;
 -- RÉSULTAT ATTENDU :
 -- SECURITY_ADMIN → le modèle résume avec le vrai permis et IBAN
 -- DATA_ANALYST   → le modèle résume avec des "identifiants hashés"
+-- Le modèle ne peut pas contourner le masking.
+
+
+-- ════════════════════════════════════════════════════════════
+-- D. LA RAP S'APPLIQUE AVANT LE MODÈLE — DOMAINES INVISIBLES
+-- ════════════════════════════════════════════════════════════
+-- La Row Access Policy filtre les lignes AVANT l'inférence.
+-- Si un rôle n'a pas accès à un département ou un secteur,
+-- le modèle ne sait même pas que ces données existent.
 --
--- La gouvernance est appliquée AVANT que le modèle ne voie les données.
--- Le modèle ne peut pas contourner le masking — il n'a jamais
--- accès aux données brutes.
+-- Rappel RAP_DEPARTEMENT (Module 1C) :
+--   SECURITY_ADMIN → tous les départements (1000 employés)
+--   DATA_ANALYST   → Commercial, Marketing, Communication (~208)
+--   DATA_ENGINEER  → Informatique, R&D, Production (~200)
+
+-- SECURITY_ADMIN : le modèle voit TOUS les départements
+USE ROLE SECURITY_ADMIN;
+SELECT 'SECURITY_ADMIN' AS ROLE_ACTIF,
+  COUNT(*) AS EMPLOYES_VISIBLES,
+  LISTAGG(DISTINCT DEPARTEMENT, ', ') AS DEPARTEMENTS_VISIBLES
+FROM VOLTAIRE_RH.EMPLOYES.PERSONNEL;
+
+SELECT 'SECURITY_ADMIN' AS ROLE_ACTIF,
+  SNOWFLAKE.CORTEX.COMPLETE(
+    'mistral-large2',
+    'Dans le département Informatique de Voltaire Analytics, il y a ' ||
+    (SELECT COUNT(*) FROM VOLTAIRE_RH.EMPLOYES.PERSONNEL WHERE DEPARTEMENT = 'Informatique')::STRING ||
+    ' employés. Résume en 1 phrase.'
+  ) AS RESUME_DEPT_INFORMATIQUE;
+
+-- DATA_ANALYST : le département Informatique est INVISIBLE
+USE ROLE DATA_ANALYST;
+SELECT 'DATA_ANALYST' AS ROLE_ACTIF,
+  COUNT(*) AS EMPLOYES_VISIBLES,
+  LISTAGG(DISTINCT DEPARTEMENT, ', ') AS DEPARTEMENTS_VISIBLES
+FROM VOLTAIRE_RH.EMPLOYES.PERSONNEL;
+
+SELECT 'DATA_ANALYST' AS ROLE_ACTIF,
+  SNOWFLAKE.CORTEX.COMPLETE(
+    'mistral-large2',
+    'Dans le département Informatique de Voltaire Analytics, il y a ' ||
+    (SELECT COUNT(*) FROM VOLTAIRE_RH.EMPLOYES.PERSONNEL WHERE DEPARTEMENT = 'Informatique')::STRING ||
+    ' employés. Résume en 1 phrase.'
+  ) AS RESUME_DEPT_INFORMATIQUE;
+
+-- RÉSULTAT ATTENDU :
+-- SECURITY_ADMIN → "~67 employés dans le département Informatique"
+-- DATA_ANALYST   → "0 employés dans le département Informatique"
+--   Le modèle reçoit 0 car la RAP filtre le département Informatique.
+--   Le modèle ne sait pas que ce département existe.
+--
+-- Même observation sur le CRM (RAP_SECTEUR) :
+-- DATA_ANALYST ne voit que Banque & Finance, Assurance, Conseil.
+-- DATA_ENGINEER ne voit que Technologie, Télécommunications, Industrie.
 
 
 -- ════════════════════════════════════════════════════════════
@@ -140,10 +174,10 @@ USE SECONDARY ROLES ALL;
 -- ┌───────────────────────────────────────────────────────────┐
 -- │ RÉCAP MODULE 2A                                          │
 -- │                                                          │
--- │ 1. Cross-Region   → OÙ l'inférence tourne (RGPD)        │
--- │ 2. Model Allowlist → QUELS modèles existent (compte)     │
--- │ 3. Le Pont         → la gouvernance Dim 1 s'applique     │
--- │                      AVANT que le modèle voie les données│
+-- │ A. Cross-Region   → OÙ l'inférence tourne (RGPD)        │
+-- │ B. Model Allowlist → QUELS modèles existent (compte)     │
+-- │ C. Masking → AI    → colonnes maskées avant le modèle    │
+-- │ D. RAP → AI        → domaines invisibles pour le modèle  │
 -- │                                                          │
 -- │ → Module 2B : QUI peut utiliser QUEL modèle (RBAC AI)   │
 -- └───────────────────────────────────────────────────────────┘
