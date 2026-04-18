@@ -1,122 +1,66 @@
 -- ============================================================
 -- MODULE 2B — GOUVERNANCE DES CAPACITÉS (DIMENSION 2)
 -- ============================================================
--- 5 leviers de contrôle AI :
---   1. Cross-Region       — où l'inférence s'exécute (mTLS)
---   2. Model Allowlist    — quels modèles existent dans le compte
---   3. Model RBAC         — quel rôle peut utiliser quel modèle
---   4. Feature Access     — quel rôle peut utiliser quelle feature Cortex
---   5. Budget Limits      — combien chaque utilisateur peut consommer
+-- « En 2A on a contrôlé OÙ et QUELS modèles au niveau compte.
+--   Maintenant on contrôle QUI peut utiliser QUEL modèle
+--   et QUELLE fonctionnalité Cortex — au niveau rôle. »
 --
+-- Deux actes :
+--   1. Model RBAC    → rôles applicatifs par modèle (GA 2025)
+--   2. Feature Access → rôles database par fonctionnalité Cortex
+--
+-- Durée : 15 min
 -- Pré-requis : Module 2A exécuté
 -- ============================================================
 
 USE ROLE ACCOUNTADMIN;
 USE WAREHOUSE WORKSHOP_WH;
 
--- ════════════════════════════════════════════════════════════
--- 0. INVENTAIRE — ÉTAT DES LIEUX
--- ════════════════════════════════════════════════════════════
 
+-- ════════════════════════════════════════════════════════════
+-- ACTE 1 : MODEL RBAC — QUEL RÔLE UTILISE QUEL MODÈLE
+-- ════════════════════════════════════════════════════════════
+-- Depuis avril 2025, chaque modèle a un rôle applicatif.
+-- Quand ALLOWLIST = 'None', seuls les rôles applicatifs
+-- déterminent l'accès modèle-par-modèle.
+--
+-- Ordre d'évaluation :
+--   1. Le rôle a-t-il un APPLICATION ROLE modèle ? → OK
+--   2. Sinon, le modèle est-il dans ALLOWLIST ?    → OK
+--   3. Sinon → ACCÈS REFUSÉ
+--
+-- Best practice production :
+--   ALLOWLIST = 'None' + grants applicatifs par rôle
+
+-- 1a. Activer les rôles modèle (obligatoire une première fois)
 CALL SNOWFLAKE.MODELS.CORTEX_BASE_MODELS_REFRESH();
 
-SHOW MODELS IN SNOWFLAKE.MODELS;
+-- 1b. Inventaire : combien de rôles modèle existent ?
+SELECT COUNT(*) AS NB_ROLES_MODELE
+FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
+WHERE "name" LIKE 'CORTEX-MODEL-ROLE-%';
 
-SELECT CURRENT_REGION() AS REGION_ACTUELLE;
-
-SELECT SNOWFLAKE.CORTEX.COMPLETE(
-  'mistral-large2',
-  'Dis bonjour en français, en une seule phrase.'
-) AS TEST_MODELE_DISPONIBLE;
-
-
--- ════════════════════════════════════════════════════════════
--- 1. CROSS-REGION — OÙ L'INFÉRENCE S'EXÉCUTE
--- ════════════════════════════════════════════════════════════
--- Doc : https://docs.snowflake.com/en/sql-reference/parameters#label-cortex-enable-cross-region
-
-SHOW PARAMETERS LIKE 'CORTEX_ENABLED_CROSS_REGION' IN ACCOUNT;
-
--- Restreindre à AWS Europe (mTLS entre régions AWS EU uniquement)
-ALTER ACCOUNT SET CORTEX_ENABLED_CROSS_REGION = 'AWS_EU';
-
--- ✅ Mistral/Llama hébergés sur AWS → OK
-SELECT SNOWFLAKE.CORTEX.COMPLETE(
-  'mistral-large2', 'Où sommes-nous hébergés ?'
-) AS MODELE_AWS_OK;
-
-SELECT SNOWFLAKE.CORTEX.COMPLETE(
-  'llama3.1-70b', 'Dis bonjour.'
-) AS MODELE_AWS_OK_2;
-
--- ❌ Modèles hébergés sur Azure (ex: OpenAI GPT) → bloqués par AWS_EU
--- Note: si le modèle n'est pas déployé dans cette région du tout,
--- l'erreur sera "Model unavailable" plutôt que "Cross-region blocked".
-
--- Valeurs possibles :
---   DISABLED     → inférence dans la région du compte uniquement
---   AWS_EU       → AWS Europe (eu-central-1, eu-west-1, eu-north-1…)
---   AZURE_EU     → Azure Europe (westeurope, francecentral…)
---   AWS_US       → AWS US regions
---   ANY_REGION   → aucune restriction géographique
---   (voir doc pour la liste complète)
-
--- restaurer
-ALTER ACCOUNT SET CORTEX_ENABLED_CROSS_REGION = 'ANY_REGION';
-
-
--- ════════════════════════════════════════════════════════════
--- 2. MODEL ALLOWLIST — QUELS MODÈLES SONT DISPONIBLES
--- ════════════════════════════════════════════════════════════
--- Doc : https://docs.snowflake.com/en/user-guide/snowflake-cortex/aisql#label-cortex-llm-allowlist
-
-SHOW PARAMETERS LIKE 'CORTEX_MODELS_ALLOWLIST' IN ACCOUNT;
-
-ALTER ACCOUNT SET CORTEX_MODELS_ALLOWLIST = 'mistral-large2';
-
--- ✅ autorisé
-SELECT SNOWFLAKE.CORTEX.COMPLETE(
-  'mistral-large2', 'Dis bonjour.'
-) AS MODELE_AUTORISE;
-
--- ❌ bloqué → "Unknown model"
-SELECT SNOWFLAKE.CORTEX.COMPLETE(
-  'llama3.1-70b', 'Dis bonjour.'
-) AS MODELE_BLOQUE;
-
--- restaurer
-ALTER ACCOUNT SET CORTEX_MODELS_ALLOWLIST = 'ALL';
-
-
--- ════════════════════════════════════════════════════════════
--- 3. MODEL RBAC — QUEL RÔLE UTILISE QUEL MODÈLE
--- ════════════════════════════════════════════════════════════
--- Doc : https://docs.snowflake.com/en/user-guide/snowflake-cortex/aisql#label-cortex-llm-rbac
--- Chaque modèle a un rôle applicatif : SNOWFLAKE."CORTEX-MODEL-ROLE-<MODELE>"
-
--- 3a. Lister les rôles applicatifs modèle
 SHOW APPLICATION ROLES LIKE '%CORTEX-MODEL%' IN APPLICATION SNOWFLAKE;
 
--- 3b. Qui a le super-rôle modèles ?
+-- 1c. Qui détient le super-rôle modèle aujourd'hui ?
 SHOW GRANTS OF APPLICATION ROLE SNOWFLAKE.CORTEX_MODELS_ADMIN;
 
--- 3c. SETUP : ALLOWLIST = None + grants par rôle
-
+-- 1d. SETUP : verrouiller l'allowlist, ouvrir par rôle
 ALTER ACCOUNT SET CORTEX_MODELS_ALLOWLIST = 'None';
 
--- DATA_ANALYST → mistral-large2 + fonctions managées
+-- DATA_ANALYST : modèle conversationnel + fonctions managées
 GRANT APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-MISTRAL-LARGE2"
-  TO ROLE DATA_ANALYST;
-GRANT APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-ARCTIC-TRANSLATE"
-  TO ROLE DATA_ANALYST;
-GRANT APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-ARCTIC-SENTIMENT"
   TO ROLE DATA_ANALYST;
 GRANT APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-MISTRAL-7B"
   TO ROLE DATA_ANALYST;
 GRANT APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-LLAMA3.1-70B"
   TO ROLE DATA_ANALYST;
+GRANT APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-ARCTIC-TRANSLATE"
+  TO ROLE DATA_ANALYST;
+GRANT APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-ARCTIC-SENTIMENT"
+  TO ROLE DATA_ANALYST;
 
--- DATA_ENGINEER → mistral-large2 + llama3.1-70b + deepseek-r1
+-- DATA_ENGINEER : modèles de raisonnement + code
 GRANT APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-MISTRAL-LARGE2"
   TO ROLE DATA_ENGINEER;
 GRANT APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-LLAMA3.1-70B"
@@ -124,37 +68,34 @@ GRANT APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-LLAMA3.1-70B"
 GRANT APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-DEEPSEEK-R1"
   TO ROLE DATA_ENGINEER;
 
--- SECURITY_ADMIN → tous les modèles + gestion
+-- SECURITY_ADMIN : accès total + gestion
 GRANT APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-ALL"
   TO ROLE SECURITY_ADMIN;
 GRANT APPLICATION ROLE SNOWFLAKE.CORTEX_MODELS_ADMIN
   TO ROLE SECURITY_ADMIN;
 
--- 3d. TEST par rôle
+
+-- 1e. TEST — changer de rôle et vérifier
 
 USE ROLE DATA_ANALYST;
 USE WAREHOUSE WORKSHOP_WH;
 
 -- ✅ mistral-large2 autorisé
 SELECT SNOWFLAKE.CORTEX.COMPLETE(
-  'mistral-large2', 'Résume en une phrase : le RBAC protège les modèles AI.'
+  'mistral-large2',
+  'En une phrase : pourquoi le least privilege est important pour l''AI ?'
 ) AS ANALYST_MISTRAL_OK;
 
--- ❌ deepseek-r1 pas autorisé pour DATA_ANALYST
+-- ❌ deepseek-r1 NON autorisé → erreur
 SELECT SNOWFLAKE.CORTEX.COMPLETE(
-  'deepseek-r1', 'Résume en une phrase : le RBAC protège les modèles AI.'
+  'deepseek-r1',
+  'En une phrase : pourquoi le least privilege est important pour l''AI ?'
 ) AS ANALYST_DEEPSEEK_BLOQUE;
 
--- ✅ AI_TRANSLATE (arctic-translate autorisé)
+-- ✅ AI_TRANSLATE utilise arctic-translate (autorisé)
 SELECT SNOWFLAKE.CORTEX.TRANSLATE(
   'Data governance is essential for AI security.', 'en', 'fr'
 ) AS ANALYST_TRANSLATE_OK;
-
--- ✅ SUMMARIZE (mistral-7b autorisé)
-SELECT SNOWFLAKE.CORTEX.SUMMARIZE(
-  'La gouvernance des données est essentielle pour la sécurité AI.
-   Elle comprend le contrôle d''accès, la classification et le monitoring.'
-) AS ANALYST_SUMMARIZE_OK;
 
 
 USE ROLE DATA_ENGINEER;
@@ -162,13 +103,9 @@ USE WAREHOUSE WORKSHOP_WH;
 
 -- ✅ deepseek-r1 autorisé pour DATA_ENGINEER
 SELECT SNOWFLAKE.CORTEX.COMPLETE(
-  'deepseek-r1', 'Explique le concept de least privilege en une phrase.'
+  'deepseek-r1',
+  'En une phrase : qu''est-ce que le model RBAC ?'
 ) AS ENGINEER_DEEPSEEK_OK;
-
--- ✅ llama3.1-70b autorisé
-SELECT SNOWFLAKE.CORTEX.COMPLETE(
-  'llama3.1-70b', 'Dis bonjour.'
-) AS ENGINEER_LLAMA_OK;
 
 
 USE ROLE SECURITY_ADMIN;
@@ -176,28 +113,24 @@ USE WAREHOUSE WORKSHOP_WH;
 
 -- ✅ accès total via CORTEX-MODEL-ROLE-ALL
 SELECT SNOWFLAKE.CORTEX.COMPLETE(
-  'mistral-large2', 'Bonjour depuis SECURITY_ADMIN.'
-) AS SECADMIN_MISTRAL_OK;
-
-SELECT SNOWFLAKE.CORTEX.COMPLETE(
   'deepseek-r1', 'Bonjour depuis SECURITY_ADMIN.'
-) AS SECADMIN_DEEPSEEK_OK;
+) AS SECADMIN_TOUT_OK;
 
 
--- 3e. NETTOYAGE
+-- 1f. NETTOYAGE Acte 1
 USE ROLE ACCOUNTADMIN;
 
 ALTER ACCOUNT SET CORTEX_MODELS_ALLOWLIST = 'ALL';
 
 REVOKE APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-MISTRAL-LARGE2"
   FROM ROLE DATA_ANALYST;
-REVOKE APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-ARCTIC-TRANSLATE"
-  FROM ROLE DATA_ANALYST;
-REVOKE APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-ARCTIC-SENTIMENT"
-  FROM ROLE DATA_ANALYST;
 REVOKE APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-MISTRAL-7B"
   FROM ROLE DATA_ANALYST;
 REVOKE APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-LLAMA3.1-70B"
+  FROM ROLE DATA_ANALYST;
+REVOKE APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-ARCTIC-TRANSLATE"
+  FROM ROLE DATA_ANALYST;
+REVOKE APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-ARCTIC-SENTIMENT"
   FROM ROLE DATA_ANALYST;
 
 REVOKE APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-MISTRAL-LARGE2"
@@ -214,63 +147,52 @@ REVOKE APPLICATION ROLE SNOWFLAKE.CORTEX_MODELS_ADMIN
 
 
 -- ════════════════════════════════════════════════════════════
--- 4. FEATURE ACCESS — QUEL RÔLE UTILISE QUELLE FEATURE CORTEX
+-- ACTE 2 : FEATURE ACCESS — QUEL RÔLE UTILISE QUELLE FEATURE
 -- ════════════════════════════════════════════════════════════
--- Doc : https://docs.snowflake.com/en/user-guide/snowflake-cortex/aisql#cortex-llm-privileges
--- 5 database roles contrôlent l'accès aux features Cortex :
---   CORTEX_USER         → accès complet (AI functions + agents + search…)
---   AI_FUNCTIONS_USER   → AI functions scalaires uniquement (pas agents/search)
---   CORTEX_AGENT_USER   → Cortex Agents API uniquement
---   CORTEX_EMBED_USER   → fonctions d'embedding uniquement
---   COPILOT_USER        → Cortex Code dans Snowsight
+-- 5 database roles dans la database SNOWFLAKE :
+--   CORTEX_USER         → accès complet Cortex (PUBLIC par défaut)
+--   AI_FUNCTIONS_USER   → fonctions AI scalaires uniquement
+--   CORTEX_AGENT_USER   → Cortex Agents uniquement
+--   CORTEX_EMBED_USER   → embedding uniquement
+--   COPILOT_USER        → Cortex Code (PUBLIC par défaut)
+--
+-- Cas d'usage production : un analyste n'a pas besoin de
+-- créer des agents. Un data engineer n'a pas besoin de
+-- Cortex Code. Least privilege par fonctionnalité.
 
--- 4a. État actuel : qui a quoi ?
+-- 2a. État actuel : qui a quoi ?
 SHOW GRANTS OF DATABASE ROLE SNOWFLAKE.CORTEX_USER;
 SHOW GRANTS OF DATABASE ROLE SNOWFLAKE.AI_FUNCTIONS_USER;
 SHOW GRANTS OF DATABASE ROLE SNOWFLAKE.CORTEX_AGENT_USER;
 SHOW GRANTS OF DATABASE ROLE SNOWFLAKE.CORTEX_EMBED_USER;
 SHOW GRANTS OF DATABASE ROLE SNOWFLAKE.COPILOT_USER;
 
--- Par défaut :
---   CORTEX_USER  → PUBLIC (tout le monde)
---   COPILOT_USER → PUBLIC (tout le monde)
---   Les autres   → ACCOUNTADMIN uniquement
+-- 2b. DEMO : segmenter l'accès par fonctionnalité
 
--- 4b. DEMO : restreindre l'accès Cortex
-
--- Retirer l'accès Cortex global
+-- Retirer l'accès global Cortex de PUBLIC
 REVOKE DATABASE ROLE SNOWFLAKE.CORTEX_USER FROM ROLE PUBLIC;
 
--- DATA_ANALYST → AI functions scalaires uniquement (pas agents, pas search)
+-- DATA_ANALYST → fonctions AI scalaires seulement (pas agents, pas search)
 GRANT DATABASE ROLE SNOWFLAKE.AI_FUNCTIONS_USER TO ROLE DATA_ANALYST;
 
--- DATA_ENGINEER → AI functions + agents
+-- DATA_ENGINEER → fonctions AI + agents
 GRANT DATABASE ROLE SNOWFLAKE.AI_FUNCTIONS_USER TO ROLE DATA_ENGINEER;
 GRANT DATABASE ROLE SNOWFLAKE.CORTEX_AGENT_USER TO ROLE DATA_ENGINEER;
 
--- SECURITY_ADMIN → accès complet
+-- SECURITY_ADMIN → accès complet Cortex
 GRANT DATABASE ROLE SNOWFLAKE.CORTEX_USER TO ROLE SECURITY_ADMIN;
 
--- 4c. TEST
-
+-- 2c. TEST
 USE ROLE DATA_ANALYST;
 USE WAREHOUSE WORKSHOP_WH;
 
--- ✅ AI_COMPLETE fonctionne (AI_FUNCTIONS_USER)
+-- ✅ AI function scalaire → OK
 SELECT SNOWFLAKE.CORTEX.COMPLETE(
-  'mistral-large2', 'Dis bonjour.'
+  'mistral-large2', 'Bonjour — test feature access.'
 ) AS ANALYST_AI_FUNCTION_OK;
 
-USE ROLE DATA_ENGINEER;
-USE WAREHOUSE WORKSHOP_WH;
 
--- ✅ AI_COMPLETE fonctionne (AI_FUNCTIONS_USER)
-SELECT SNOWFLAKE.CORTEX.COMPLETE(
-  'mistral-large2', 'Dis bonjour.'
-) AS ENGINEER_AI_FUNCTION_OK;
-
-
--- 4d. NETTOYAGE
+-- 2d. NETTOYAGE Acte 2
 USE ROLE ACCOUNTADMIN;
 
 REVOKE DATABASE ROLE SNOWFLAKE.AI_FUNCTIONS_USER FROM ROLE DATA_ANALYST;
@@ -282,44 +204,19 @@ REVOKE DATABASE ROLE SNOWFLAKE.CORTEX_USER FROM ROLE SECURITY_ADMIN;
 GRANT DATABASE ROLE SNOWFLAKE.CORTEX_USER TO ROLE PUBLIC;
 
 
--- ════════════════════════════════════════════════════════════
--- 5. BUDGET LIMITS — LIMITES DE CONSOMMATION
--- ════════════════════════════════════════════════════════════
-
-SHOW PARAMETERS LIKE 'CORTEX_CODE%' IN ACCOUNT;
-
--- Limiter la consommation Cortex Code par utilisateur :
--- ALTER USER <username> SET CORTEX_CODE_CLI_DAILY_EST_CREDIT_LIMIT_PER_USER = 5;
-
-
--- ════════════════════════════════════════════════════════════
--- 6. AUDIT — QUI A UTILISÉ QUELS MODÈLES ?
--- ════════════════════════════════════════════════════════════
-
-SELECT
-    h.USAGE_TIME,
-    u.NAME AS USER_NAME,
-    h.FUNCTION_NAME,
-    h.MODEL_NAME,
-    h.TOKENS,
-    h.TOKEN_CREDITS,
-    h.QUERY_ID
-FROM SNOWFLAKE.ACCOUNT_USAGE.CORTEX_AISQL_USAGE_HISTORY h
-LEFT JOIN SNOWFLAKE.ACCOUNT_USAGE.USERS u ON h.USER_ID = u.USER_ID
-WHERE h.USAGE_TIME >= DATEADD(day, -7, CURRENT_TIMESTAMP())
-ORDER BY h.USAGE_TIME DESC
-LIMIT 20;
-
-
--- ════════════════════════════════════════════════════════════
--- RÉCAP : 5 LEVIERS DE GOUVERNANCE AI
--- ════════════════════════════════════════════════════════════
--- ┌──────────────────────┬───────────────────────────┬──────────────┐
--- │ Levier               │ Contrôle                  │ Granularité  │
--- ├──────────────────────┼───────────────────────────┼──────────────┤
--- │ 1. CROSS_REGION      │ Où tourne l'inférence     │ Compte       │
--- │ 2. MODELS_ALLOWLIST  │ Quels modèles existent    │ Compte       │
--- │ 3. MODEL RBAC        │ Qui utilise quel modèle   │ Rôle×Modèle  │
--- │ 4. FEATURE ACCESS    │ Qui utilise quelle feature│ Rôle×Feature │
--- │ 5. BUDGET LIMITS     │ Combien on consomme       │ Utilisateur  │
--- └──────────────────────┴───────────────────────────┴──────────────┘
+-- ┌───────────────────────────────────────────────────────────┐
+-- │ RÉCAP MODULE 2B — DIMENSION 2 : GOUVERNANCE CAPACITÉS    │
+-- │                                                          │
+-- │  Acte 1 — Model RBAC (rôles applicatifs)                 │
+-- │   • ALLOWLIST = 'None' + grants par rôle = least priv.   │
+-- │   • DATA_ANALYST : mistral-large2 + fonctions managées   │
+-- │   • DATA_ENGINEER : + deepseek-r1 (raisonnement)         │
+-- │   • SECURITY_ADMIN : CORTEX-MODEL-ROLE-ALL + admin       │
+-- │                                                          │
+-- │  Acte 2 — Feature Access (database roles)                │
+-- │   • CORTEX_USER retiré de PUBLIC                         │
+-- │   • Chaque rôle reçoit les features nécessaires          │
+-- │                                                          │
+-- │  Combinés : on contrôle QUEL modèle ET QUELLE feature    │
+-- │  → Module 2C : on PROUVE que Dim 1 + Dim 2 fonctionnent  │
+-- └───────────────────────────────────────────────────────────┘

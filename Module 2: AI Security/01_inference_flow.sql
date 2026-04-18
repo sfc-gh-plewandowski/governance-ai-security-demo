@@ -1,60 +1,105 @@
 -- ============================================================
--- MODULE 2A — LE FLUX D'INFÉRENCE AI ET LA FRONTIÈRE DE CONFIANCE
+-- MODULE 2A — FLUX D'INFÉRENCE AI & FRONTIÈRE DE CONFIANCE
 -- ============================================================
--- Ce module est surtout CONCEPTUEL. Le SQL ici sert à
--- illustrer les paramètres et vérifier la configuration.
+-- « Ce matin on a gouverné les données. Maintenant on prouve
+--   que l'AI respecte cette gouvernance — et on ajoute les
+--   contrôles propres à l'AI. »
 --
--- L'objectif : comprendre le flux complet d'une requête AI
--- et identifier OÙ chaque dimension de gouvernance s'applique.
+-- Ce module pose les fondations :
+--   A. Où l'inférence s'exécute (géographie)
+--   B. Quels modèles sont disponibles (allowlist compte)
+--   C. Premier appel Cortex
+--   D. LE PONT : même requête AI, 2 rôles → 2 résultats
 --
--- Pré-requis : Modules 1A–1C exécutés (gouvernance en place)
+-- Durée : 20 min
+-- Pré-requis : Modules 1A–1D exécutés (gouvernance en place)
 -- ============================================================
 
 USE ROLE ACCOUNTADMIN;
 USE WAREHOUSE WORKSHOP_WH;
 
--- ────────────────────────────────────────────────────────────
--- A. VÉRIFIER LA CONFIGURATION CORTEX DU COMPTE
--- ────────────────────────────────────────────────────────────
 
-SHOW PARAMETERS LIKE 'CORTEX%' IN ACCOUNT;
-
--- ────────────────────────────────────────────────────────────
--- B. CORTEX_ENABLED_CROSS_REGION — OÙ VOS DONNÉES VOYAGENT
--- ────────────────────────────────────────────────────────────
--- Valeurs possibles :
---   DISABLED      → tout reste dans la région du compte
---   AWS_EU        → peut aller vers d'autres régions AWS en EU
---   AWS_US_EU     → peut traverser US et EU sur AWS
---   AZURE_EU      → peut aller vers Azure EU
---
--- IMPACT RGPD : si le compte est en eu-central-1 et qu'on
--- active AWS_US, les données transitent hors UE pendant l'inférence. 
+-- ════════════════════════════════════════════════════════════
+-- A. OÙ L'INFÉRENCE S'EXÉCUTE — GÉOGRAPHIE & RGPD
+-- ════════════════════════════════════════════════════════════
+-- CORTEX_ENABLED_CROSS_REGION contrôle si les données
+-- peuvent quitter la région du compte pendant l'inférence.
+-- Impact direct sur la conformité RGPD.
 
 SELECT CURRENT_REGION() AS REGION_COMPTE;
 
--- Pour démontrer le changement (NE PAS EXÉCUTER EN PROD SANS VALIDATION) :
--- ALTER ACCOUNT SET CORTEX_ENABLED_CROSS_REGION = 'DISABLED';
--- ALTER ACCOUNT SET CORTEX_ENABLED_CROSS_REGION = 'AWS_EU';
+SHOW PARAMETERS LIKE 'CORTEX_ENABLED_CROSS_REGION' IN ACCOUNT;
 
--- ────────────────────────────────────────────────────────────
--- C. TEST DE BASE — CORTEX.COMPLETE FONCTIONNE
--- ────────────────────────────────────────────────────────────
+-- Valeurs possibles :
+--   DISABLED     → inférence dans la région du compte uniquement
+--   AWS_EU       → régions AWS Europe (mTLS entre régions)
+--   AZURE_EU     → régions Azure Europe
+--   AWS_US       → régions AWS US (⚠ données hors UE)
+--   ANY_REGION   → aucune restriction géographique
+
+-- DEMO : restreindre à l'Europe
+ALTER ACCOUNT SET CORTEX_ENABLED_CROSS_REGION = 'AWS_EU';
+
+-- ✅ Modèle hébergé sur AWS EU → fonctionne
+SELECT SNOWFLAKE.CORTEX.COMPLETE(
+  'mistral-large2',
+  'En une phrase, quel est le principe de minimisation des données selon le RGPD ?'
+) AS MODELE_AWS_EU_OK;
+
+-- Restaurer
+ALTER ACCOUNT SET CORTEX_ENABLED_CROSS_REGION = 'ANY_REGION';
+
+
+-- ════════════════════════════════════════════════════════════
+-- B. QUELS MODÈLES SONT DISPONIBLES — ALLOWLIST COMPTE
+-- ════════════════════════════════════════════════════════════
+-- CORTEX_MODELS_ALLOWLIST est le premier filtre :
+-- seuls les modèles listés sont utilisables, par quiconque.
+
+SHOW PARAMETERS LIKE 'CORTEX_MODELS_ALLOWLIST' IN ACCOUNT;
+
+-- DEMO : restreindre à un seul modèle
+ALTER ACCOUNT SET CORTEX_MODELS_ALLOWLIST = 'mistral-large2';
+
+-- ✅ autorisé
+SELECT SNOWFLAKE.CORTEX.COMPLETE(
+  'mistral-large2', 'Dis bonjour en français.'
+) AS MODELE_AUTORISE;
+
+-- ❌ bloqué → erreur "Unknown model"
+SELECT SNOWFLAKE.CORTEX.COMPLETE(
+  'llama3.1-70b', 'Dis bonjour en français.'
+) AS MODELE_BLOQUE;
+
+-- Restaurer
+ALTER ACCOUNT SET CORTEX_MODELS_ALLOWLIST = 'ALL';
+
+
+-- ════════════════════════════════════════════════════════════
+-- C. PREMIER APPEL — CORTEX.COMPLETE
+-- ════════════════════════════════════════════════════════════
+-- Le flux d'inférence :
+--   User → Role → SQL (SELECT + CORTEX.COMPLETE)
+--   → Gouvernance appliquée (masking, RAP, projection)
+--   → Données gouvernées envoyées au modèle
+--   → Réponse retournée au user
 
 SELECT SNOWFLAKE.CORTEX.COMPLETE(
   'mistral-large2',
-  'En une phrase, explique ce qu''est le masking dynamique dans Snowflake.'
+  'Explique en 2 phrases ce qu''est le masking dynamique dans Snowflake.'
 ) AS REPONSE_AI;
 
--- ────────────────────────────────────────────────────────────
--- D. LE FLUX D'INFÉRENCE — DÉMONSTRATION VISUELLE
--- ────────────────────────────────────────────────────────────
--- Ce SQL montre que le modèle reçoit les données APRÈS
--- que la gouvernance a été appliquée. On passe une ligne
--- de données au modèle — le contenu dépend du rôle.
+
+-- ════════════════════════════════════════════════════════════
+-- D. LE PONT — LA GOUVERNANCE S'APPLIQUE AVANT LE MODÈLE
+-- ════════════════════════════════════════════════════════════
+-- Même requête AI sur les mêmes données.
+-- Le modèle reçoit ce que le RÔLE voit — pas les données brutes.
+-- C'est le pont entre le matin (Dimension 1) et l'après-midi.
 
 USE SECONDARY ROLES NONE;
 
+-- SECURITY_ADMIN : le modèle reçoit permis + IBAN en clair
 USE ROLE SECURITY_ADMIN;
 SELECT 'SECURITY_ADMIN' AS ROLE_ACTIF,
   SNOWFLAKE.CORTEX.COMPLETE(
@@ -68,6 +113,7 @@ SELECT 'SECURITY_ADMIN' AS ROLE_ACTIF,
 FROM VOLTAIRE_RH.EMPLOYES.PERSONNEL
 WHERE EMPLOYE_ID = 1;
 
+-- DATA_ANALYST : le modèle reçoit des hash SHA2
 USE ROLE DATA_ANALYST;
 SELECT 'DATA_ANALYST' AS ROLE_ACTIF,
   SNOWFLAKE.CORTEX.COMPLETE(
@@ -81,13 +127,28 @@ SELECT 'DATA_ANALYST' AS ROLE_ACTIF,
 FROM VOLTAIRE_RH.EMPLOYES.PERSONNEL
 WHERE EMPLOYE_ID = 3;
 
--- SECURITY_ADMIN : le modèle reçoit les vraies données (permis en clair, IBAN complet)
--- DATA_ANALYST : le modèle reçoit des hash SHA2 → il résume des hash, pas des données réelles
--- LA GOUVERNANCE EST APPLIQUÉE AVANT QUE LE MODÈLE NE VOIE LES DONNÉES
+-- RÉSULTAT ATTENDU :
+-- SECURITY_ADMIN → le modèle résume avec le vrai permis et IBAN
+-- DATA_ANALYST   → le modèle résume avec des "identifiants hashés"
+--
+-- La gouvernance est appliquée AVANT que le modèle ne voie les données.
+-- Le modèle ne peut pas contourner le masking — il n'a jamais
+-- accès aux données brutes.
 
--- ────────────────────────────────────────────────────────────
--- E. RESET
--- ────────────────────────────────────────────────────────────
 
+-- ════════════════════════════════════════════════════════════
+-- RESET
+-- ════════════════════════════════════════════════════════════
 USE ROLE ACCOUNTADMIN;
 USE SECONDARY ROLES ALL;
+
+-- ┌───────────────────────────────────────────────────────────┐
+-- │ RÉCAP MODULE 2A                                          │
+-- │                                                          │
+-- │ 1. Cross-Region   → OÙ l'inférence tourne (RGPD)        │
+-- │ 2. Model Allowlist → QUELS modèles existent (compte)     │
+-- │ 3. Le Pont         → la gouvernance Dim 1 s'applique     │
+-- │                      AVANT que le modèle voie les données│
+-- │                                                          │
+-- │ → Module 2B : QUI peut utiliser QUEL modèle (RBAC AI)   │
+-- └───────────────────────────────────────────────────────────┘
