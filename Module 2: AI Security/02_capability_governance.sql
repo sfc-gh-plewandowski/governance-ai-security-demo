@@ -1,15 +1,10 @@
 -- ============================================================
 -- MODULE 2B — GOUVERNANCE DES CAPACITÉS (DIMENSION 2)
 -- ============================================================
--- « En 2A on a contrôlé OÙ et QUELS modèles au niveau compte.
---   Maintenant on contrôle QUI peut utiliser QUEL modèle
---   et QUELLE fonctionnalité Cortex — au niveau rôle. »
---
--- Deux actes :
+-- Contrôle granulaire de l'accès AI au niveau rôle :
 --   1. Model RBAC    → rôles applicatifs par modèle (GA 2025)
 --   2. Feature Access → rôles database par fonctionnalité Cortex
 --
--- Durée : 15 min
 -- Pré-requis : Module 2A exécuté
 -- ============================================================
 
@@ -36,10 +31,6 @@ USE WAREHOUSE WORKSHOP_WH;
 CALL SNOWFLAKE.MODELS.CORTEX_BASE_MODELS_REFRESH();
 
 -- 1b. Inventaire : combien de rôles modèle existent ?
-SELECT COUNT(*) AS NB_ROLES_MODELE
-FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))
-WHERE "name" LIKE 'CORTEX-MODEL-ROLE-%';
-
 SHOW APPLICATION ROLES LIKE '%CORTEX-MODEL%' IN APPLICATION SNOWFLAKE;
 
 -- 1c. Qui détient le super-rôle modèle aujourd'hui ?

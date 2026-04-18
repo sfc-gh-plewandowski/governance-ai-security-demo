@@ -1,18 +1,15 @@
 -- ============================================================
--- MODULE 2E — MONITORING & AUDIT AI — FERMER LA BOUCLE
+-- MODULE 2E — MONITORING & AUDIT AI
 -- ============================================================
--- « Gouverner sans surveiller, c'est construire une porte
---   sans vérifier si quelqu'un l'utilise. Le monitoring ferme
---   la boucle : classify → protect → use → MONITOR → refine. »
+-- Boucle de gouvernance : classify → protect → use → MONITOR → refine
 --
--- 4 actes :
+-- Ce module couvre :
 --   1. Qui a appelé quels modèles ? (audit détaillé)
 --   2. Combien ça coûte ? (consommation par fonction/modèle)
 --   3. Comportement anormal ? (détection d'anomalies)
 --   4. Limites budgétaires (contrôle de la dépense par user)
 --
--- Durée : 15 min
--- Pré-requis : Modules 2A–2D exécutés (avoir fait des appels Cortex)
+-- Pré-requis : Modules 2A–2D exécutés
 -- ============================================================
 
 USE ROLE ACCOUNTADMIN;

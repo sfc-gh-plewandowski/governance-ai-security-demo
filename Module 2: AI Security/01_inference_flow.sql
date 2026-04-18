@@ -1,18 +1,13 @@
 -- ============================================================
 -- MODULE 2A — FLUX D'INFÉRENCE AI & FRONTIÈRE DE CONFIANCE
 -- ============================================================
--- « Ce matin on a gouverné les données. Maintenant on prouve
---   que l'AI respecte cette gouvernance — et on ajoute les
---   contrôles propres à l'AI. »
---
--- Ce module pose les fondations :
---   A. Où l'inférence s'exécute (géographie)
+-- Ce module couvre :
+--   A. Où l'inférence s'exécute (géographie & RGPD)
 --   B. Quels modèles sont disponibles (allowlist compte)
 --   C. Premier appel Cortex
---   D. LE PONT : même requête AI, 2 rôles → 2 résultats
+--   D. Preuve que la gouvernance s'applique avant le modèle
 --
--- Durée : 20 min
--- Pré-requis : Modules 1A–1D exécutés (gouvernance en place)
+-- Pré-requis : Modules 1A–1D exécutés
 -- ============================================================
 
 USE ROLE ACCOUNTADMIN;

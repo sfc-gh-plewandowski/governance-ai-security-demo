@@ -1,21 +1,19 @@
 -- ============================================================
 -- MODULE 2D — AI_REDACT & CONTRÔLES PROBABILISTES
 -- ============================================================
--- « Ce matin on a posé des contrôles DÉTERMINISTES — masking,
---   RAP, projection. Ce sont des murs. AI_REDACT est un filet
---   de sécurité : il détecte et masque les PII dans du texte
---   libre, là où le masking par colonne ne peut pas aider. »
+-- AI_REDACT détecte et masque les PII dans du texte libre,
+-- là où le masking par colonne ne peut pas aider.
 --
--- Message clé : les contrôles déterministes sont les ceintures,
--- les contrôles probabilistes sont les airbags. On veut les deux.
+-- Best practice : contrôles déterministes (masking, RAP,
+-- projection) = murs. Contrôles probabilistes (AI_REDACT,
+-- GUARD) = filets de sécurité. Utiliser les deux.
 --
--- 4 actes :
+-- Ce module couvre :
 --   1. Données brutes avec PII dans du texte libre
 --   2. AI_REDACT : redact + detect + catégories sélectives
 --   3. Pipeline : AI_REDACT → AI_SENTIMENT (analyse sécurisée)
 --   4. Intégration gouvernance : AI_REDACT dans une masking policy
 --
--- Durée : 15 min
 -- Pré-requis : Modules 2A–2C exécutés
 -- ============================================================
 

@@ -1,18 +1,13 @@
 -- ============================================================
 -- MODULE 2C — LA PREUVE : LA GOUVERNANCE SE TRANSMET À L'AI
 -- ============================================================
--- « On a gouverné les données (Dim 1), contrôlé les modèles
---   (Dim 2). Maintenant on PROUVE que tout fonctionne ensemble.
---   4 preuves formelles. Chacune répond à la question du RSSI :
---   "Si on ajoute l'AI, est-ce que ça respecte notre gouvernance ?" »
---
--- 4 preuves :
+-- 4 preuves formelles que les contrôles de gouvernance
+-- (masking, RAP, projection) s'appliquent aux requêtes AI :
 --   1. Masking    → le modèle reçoit des hash, pas des données
 --   2. RAP        → le modèle ne connaît que les lignes autorisées
 --   3. Projection → le modèle ne peut PAS accéder aux colonnes interdites
 --   4. CRM        → le masking SIRET se transmet à l'AI
 --
--- Durée : 25 min
 -- Pré-requis : Modules 1A–1D + 2A–2B exécutés
 -- ============================================================
 
