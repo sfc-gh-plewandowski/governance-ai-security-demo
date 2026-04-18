@@ -1,15 +1,7 @@
 -- ============================================================
 -- MODULE 2B — GOUVERNANCE DES CAPACITÉS (DIMENSION 2)
 -- ============================================================
--- Dimension 2 : qui peut utiliser quel modèle, quel agent,
--- quels outils. On ne contrôle pas juste les DONNÉES (Dim 1),
--- on contrôle aussi les CAPACITÉS AI elles-mêmes.
---
--- 3 leviers de contrôle :
---   1. MODEL ALLOWLIST   → quels modèles existent dans le compte
---   2. MODEL RBAC        → quels rôles peuvent appeler quels modèles
---   3. CROSS-REGION      → dans quelles régions l'inférence peut tourner
---
+-- 3 leviers : ALLOWLIST · MODEL RBAC · CROSS-REGION
 -- Pré-requis : Module 2A exécuté
 -- ============================================================
 
@@ -17,154 +9,240 @@ USE ROLE ACCOUNTADMIN;
 USE WAREHOUSE WORKSHOP_WH;
 
 -- ════════════════════════════════════════════════════════════
--- A. MODEL ALLOWLIST — QUELS MODÈLES SONT DISPONIBLES
+-- A. INVENTAIRE — QUELS MODÈLES SONT DISPONIBLES
 -- ════════════════════════════════════════════════════════════
 
 SHOW PARAMETERS LIKE 'CORTEX_MODELS_ALLOWLIST' IN ACCOUNT;
 
--- Vérifions qu'un modèle fonctionne avec la config actuelle (ALL)
+CALL SNOWFLAKE.MODELS.CORTEX_BASE_MODELS_REFRESH();
+
+SHOW MODELS IN SNOWFLAKE.MODELS;
+
 SELECT SNOWFLAKE.CORTEX.COMPLETE(
   'mistral-large2',
   'Dis bonjour en français, en une seule phrase.'
 ) AS TEST_MODELE_DISPONIBLE;
 
+
 -- ════════════════════════════════════════════════════════════
--- B. RESTRICTION DE L'ALLOWLIST — LIVE DEMO
+-- B. ALLOWLIST — RESTREINDRE LES MODÈLES AU NIVEAU COMPTE
 -- ════════════════════════════════════════════════════════════
--- On restreint le compte à un seul modèle.
--- Tout le reste devient invisible.
 
 ALTER ACCOUNT SET CORTEX_MODELS_ALLOWLIST = 'mistral-large2';
 
--- ✅ Ce modèle est dans l'allowlist → fonctionne
+-- ✅ autorisé
 SELECT SNOWFLAKE.CORTEX.COMPLETE(
-  'mistral-large2',
-  'Dis bonjour en français.'
+  'mistral-large2', 'Dis bonjour.'
 ) AS MODELE_AUTORISE;
 
--- ❌ Ce modèle N'EST PAS dans l'allowlist → erreur attendue :
---    "Unknown model llama3.1-70b"
+-- ❌ bloqué → "Unknown model"
 SELECT SNOWFLAKE.CORTEX.COMPLETE(
-  'llama3.1-70b',
-  'Dis bonjour en français.'
+  'llama3.1-70b', 'Dis bonjour.'
 ) AS MODELE_BLOQUE;
 
--- CE QU'ON DÉMONTRE :
--- L'allowlist est un filtre au niveau COMPTE. Seuls les modèles
--- listés peuvent être appelés. Tout le reste est invisible.
--- C'est le premier niveau de gouvernance AI.
-
--- BONNE PRATIQUE en production : lister uniquement les modèles
--- validés par l'équipe sécurité, par exemple :
--- ALTER ACCOUNT SET CORTEX_MODELS_ALLOWLIST = 'mistral-large2,llama3.1-70b';
-
--- ⚠️ IMPORTANT : remettre ALL pour la suite du workshop
+-- restaurer
 ALTER ACCOUNT SET CORTEX_MODELS_ALLOWLIST = 'ALL';
 
--- ════════════════════════════════════════════════════════════
--- C. MODEL RBAC — CONTRÔLE PAR RÔLE (APPLICATION ROLES)
--- ════════════════════════════════════════════════════════════
--- L'allowlist (section B) contrôle quels modèles EXISTENT
--- dans le compte. Le RBAC contrôle quels RÔLES peuvent les
--- appeler. Ce sont deux niveaux complémentaires.
 
-SHOW APPLICATION ROLES IN APPLICATION SNOWFLAKE;
+-- ════════════════════════════════════════════════════════════
+-- C. MODEL RBAC — CONTRÔLE PAR RÔLE, PAR MODÈLE
+-- ════════════════════════════════════════════════════════════
+-- Après le refresh (section A), chaque modèle a un rôle applicatif :
+-- SNOWFLAKE."CORTEX-MODEL-ROLE-<MODELE>"
 
--- Le rôle clé : CORTEX_MODELS_ADMIN
--- Seul ce rôle (et ses parents) peut modifier l'allowlist
--- et gérer l'accès aux modèles.
+-- C1. Lister les rôles applicatifs modèle
+SHOW APPLICATION ROLES LIKE '%CORTEX-MODEL%' IN APPLICATION SNOWFLAKE;
+
+-- C2. Vérifier qui a CORTEX_MODELS_ADMIN (le super-rôle modèles)
 SHOW GRANTS OF APPLICATION ROLE SNOWFLAKE.CORTEX_MODELS_ADMIN;
 
--- BONNE PRATIQUE : LEAST PRIVILEGE POUR L'AI
---
--- 1. Allowlist restreinte au niveau compte :
---    ALTER ACCOUNT SET CORTEX_MODELS_ALLOWLIST = 'mistral-large2,llama3.1-70b';
---    → Seuls ces 2 modèles existent dans le compte.
---
--- 2. Donner CORTEX_MODELS_ADMIN à un rôle spécifique :
---    GRANT APPLICATION ROLE SNOWFLAKE.CORTEX_MODELS_ADMIN TO ROLE SECURITY_ADMIN;
---    → Seul SECURITY_ADMIN peut modifier la liste.
---
--- 3. Résultat :
---    • DATA_ANALYST peut appeler mistral-large2 (modèle autorisé)
---    • DATA_ANALYST ne peut PAS ajouter gpt-4o à la liste
---    • Double verrou : l'allowlist dit "quoi", le RBAC dit "qui"
+-- C3. Best practice : ALLOWLIST = None + grants par rôle
+
+-- Étape 1 : couper l'accès global
+ALTER ACCOUNT SET CORTEX_MODELS_ALLOWLIST = 'None';
+
+-- Étape 2 : DATA_ANALYST → peut utiliser mistral-large2 uniquement
+GRANT APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-MISTRAL-LARGE2"
+  TO ROLE DATA_ANALYST;
+
+-- Étape 3 : DATA_ENGINEER → mistral-large2 + llama3.1-70b + deepseek-r1
+GRANT APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-MISTRAL-LARGE2"
+  TO ROLE DATA_ENGINEER;
+GRANT APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-LLAMA3.1-70B"
+  TO ROLE DATA_ENGINEER;
+GRANT APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-DEEPSEEK-R1"
+  TO ROLE DATA_ENGINEER;
+
+-- Étape 4 : SECURITY_ADMIN → gestion complète (tous les modèles)
+GRANT APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-ALL"
+  TO ROLE SECURITY_ADMIN;
+GRANT APPLICATION ROLE SNOWFLAKE.CORTEX_MODELS_ADMIN
+  TO ROLE SECURITY_ADMIN;
+
+-- Étape 5 : fonctions managées (AI_TRANSLATE, SUMMARIZE, AI_REDACT…)
+-- Ces fonctions utilisent des modèles internes. Il faut les autoriser aussi.
+GRANT APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-ARCTIC-TRANSLATE"
+  TO ROLE DATA_ANALYST;
+GRANT APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-ARCTIC-SENTIMENT"
+  TO ROLE DATA_ANALYST;
+GRANT APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-MISTRAL-7B"
+  TO ROLE DATA_ANALYST;
+GRANT APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-LLAMA3.1-70B"
+  TO ROLE DATA_ANALYST;
+
 
 -- ════════════════════════════════════════════════════════════
--- D. CORTEX_ENABLED_CROSS_REGION — CONTRÔLE GÉOGRAPHIQUE
+-- D. TEST RBAC — VÉRIFICATION PAR RÔLE
 -- ════════════════════════════════════════════════════════════
--- Troisième levier : OÙ l'inférence peut s'exécuter.
--- Certains modèles ne sont pas hébergés dans toutes les régions.
--- Ce paramètre contrôle si Snowflake peut router une requête
--- vers une autre région que celle du compte.
+
+-- D1. DATA_ANALYST : mistral-large2 → ✅
+USE ROLE DATA_ANALYST;
+USE WAREHOUSE WORKSHOP_WH;
+
+SELECT SNOWFLAKE.CORTEX.COMPLETE(
+  'mistral-large2', 'Résume en une phrase : le RBAC protège les modèles AI.'
+) AS ANALYST_MISTRAL_OK;
+
+-- D2. DATA_ANALYST : deepseek-r1 → ❌ pas autorisé
+SELECT SNOWFLAKE.CORTEX.COMPLETE(
+  'deepseek-r1', 'Résume en une phrase : le RBAC protège les modèles AI.'
+) AS ANALYST_DEEPSEEK_BLOQUE;
+
+-- D3. DATA_ANALYST : AI_TRANSLATE (arctic-translate) → ✅
+SELECT SNOWFLAKE.CORTEX.TRANSLATE(
+  'Data governance is essential for AI security.',
+  'en', 'fr'
+) AS ANALYST_TRANSLATE_OK;
+
+-- D4. DATA_ANALYST : SUMMARIZE (mistral-7b) → ✅
+SELECT SNOWFLAKE.CORTEX.SUMMARIZE(
+  'La gouvernance des données est essentielle pour la sécurité AI.
+   Elle comprend le contrôle d''accès, la classification et le monitoring.'
+) AS ANALYST_SUMMARIZE_OK;
+
+
+-- D5. DATA_ENGINEER : deepseek-r1 → ✅
+USE ROLE DATA_ENGINEER;
+USE WAREHOUSE WORKSHOP_WH;
+
+SELECT SNOWFLAKE.CORTEX.COMPLETE(
+  'deepseek-r1', 'Explique le concept de least privilege en une phrase.'
+) AS ENGINEER_DEEPSEEK_OK;
+
+-- D6. DATA_ENGINEER : llama3.1-70b → ✅
+SELECT SNOWFLAKE.CORTEX.COMPLETE(
+  'llama3.1-70b', 'Dis bonjour.'
+) AS ENGINEER_LLAMA_OK;
+
+
+-- D7. SECURITY_ADMIN : accès total via CORTEX-MODEL-ROLE-ALL
+USE ROLE SECURITY_ADMIN;
+USE WAREHOUSE WORKSHOP_WH;
+
+SELECT SNOWFLAKE.CORTEX.COMPLETE(
+  'mistral-large2', 'Bonjour depuis SECURITY_ADMIN.'
+) AS SECADMIN_MISTRAL_OK;
+
+SELECT SNOWFLAKE.CORTEX.COMPLETE(
+  'deepseek-r1', 'Bonjour depuis SECURITY_ADMIN.'
+) AS SECADMIN_DEEPSEEK_OK;
+
+
+-- ════════════════════════════════════════════════════════════
+-- E. NETTOYAGE RBAC — RESTAURER ALLOWLIST = ALL
+-- ════════════════════════════════════════════════════════════
+USE ROLE ACCOUNTADMIN;
+
+ALTER ACCOUNT SET CORTEX_MODELS_ALLOWLIST = 'ALL';
+
+-- Révoquer les grants de démonstration
+REVOKE APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-MISTRAL-LARGE2"
+  FROM ROLE DATA_ANALYST;
+REVOKE APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-ARCTIC-TRANSLATE"
+  FROM ROLE DATA_ANALYST;
+REVOKE APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-ARCTIC-SENTIMENT"
+  FROM ROLE DATA_ANALYST;
+REVOKE APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-MISTRAL-7B"
+  FROM ROLE DATA_ANALYST;
+REVOKE APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-LLAMA3.1-70B"
+  FROM ROLE DATA_ANALYST;
+
+REVOKE APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-MISTRAL-LARGE2"
+  FROM ROLE DATA_ENGINEER;
+REVOKE APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-LLAMA3.1-70B"
+  FROM ROLE DATA_ENGINEER;
+REVOKE APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-DEEPSEEK-R1"
+  FROM ROLE DATA_ENGINEER;
+
+REVOKE APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-ALL"
+  FROM ROLE SECURITY_ADMIN;
+REVOKE APPLICATION ROLE SNOWFLAKE.CORTEX_MODELS_ADMIN
+  FROM ROLE SECURITY_ADMIN;
+
+
+-- ════════════════════════════════════════════════════════════
+-- F. CROSS-REGION — CONTRÔLE GÉOGRAPHIQUE DE L'INFÉRENCE
+-- ════════════════════════════════════════════════════════════
 
 SELECT CURRENT_REGION() AS REGION_ACTUELLE;
 
 SHOW PARAMETERS LIKE 'CORTEX_ENABLED_CROSS_REGION' IN ACCOUNT;
 
--- Valeurs possibles :
---   DISABLED    → inférence dans la région du compte uniquement
---   AWS_EU      → AWS Europe (recommandé RGPD pour comptes AWS)
---   AZURE_EU    → Azure Europe (pour comptes Azure)
---   ANY_REGION  → aucune restriction (⚠️ données peuvent transiter hors UE)
-
--- DÉMONSTRATION : restreindre à AWS_EU
--- Notre compte est sur AWS eu-central-1 (Francfort).
--- Avec AWS_EU, l'inférence reste sur l'infrastructure AWS européenne.
-
+-- Restreindre à AWS Europe
 ALTER ACCOUNT SET CORTEX_ENABLED_CROSS_REGION = 'AWS_EU';
 
--- ✅ Mistral est hébergé sur AWS → fonctionne
+-- ✅ Mistral/Llama hébergés sur AWS → OK
 SELECT SNOWFLAKE.CORTEX.COMPLETE(
-  'mistral-large2',
-  'En une phrase : où sommes-nous hébergés ?'
+  'mistral-large2', 'Où sommes-nous hébergés ?'
 ) AS MODELE_AWS_OK;
 
--- ✅ Llama est hébergé sur AWS → fonctionne
 SELECT SNOWFLAKE.CORTEX.COMPLETE(
-  'llama3.1-70b',
-  'En une phrase : dis bonjour.'
+  'llama3.1-70b', 'Dis bonjour.'
 ) AS MODELE_AWS_OK_2;
 
--- ❌ Les modèles OpenAI sont hébergés sur Azure.
---    Avec AWS_EU, ils sont hors périmètre → erreur attendue :
---    "Model gpt-4o is unavailable"
-SELECT SNOWFLAKE.CORTEX.COMPLETE(
-  'gpt-4o',
-  'Dis bonjour.'
-) AS MODELE_AZURE_BLOQUE;
+-- ❌ Modèles hébergés sur Azure → bloqués par AWS_EU
+-- OpenAI (GPT) est hébergé sur Azure. Avec AWS_EU, il est hors périmètre.
+-- Note: si le modèle n'est pas déployé dans la région, l'erreur sera
+-- "Model unavailable" plutôt que "Cross-region blocked".
 
--- CE QU'ON DÉMONTRE :
--- La souveraineté des données s'étend à l'inférence AI.
--- Avec AWS_EU, vos prompts et vos données ne quittent JAMAIS
--- l'infrastructure AWS européenne.
---
--- Pour un compte Azure, c'est l'inverse :
---   AZURE_EU → GPT-4o (Azure) ✅, Anthropic/Mistral (AWS) ❌
---
--- Pour un client finance, santé ou secteur public, c'est la
--- réponse à : "Où partent mes données quand j'appelle un LLM ?"
-
--- ⚠️ IMPORTANT : remettre ANY_REGION pour la suite du workshop
+-- restaurer
 ALTER ACCOUNT SET CORTEX_ENABLED_CROSS_REGION = 'ANY_REGION';
 
--- ════════════════════════════════════════════════════════════
--- E. RÉCAPITULATIF — LES 3 LEVIERS
--- ════════════════════════════════════════════════════════════
---
--- ┌─────────────────────┬────────────────────┬──────────────┐
--- │ Levier              │ Contrôle           │ Granularité  │
--- ├─────────────────────┼────────────────────┼──────────────┤
--- │ MODELS_ALLOWLIST    │ Quels modèles      │ Compte       │
--- │ APPLICATION ROLES   │ Qui peut gérer     │ Rôle         │
--- │ CROSS_REGION        │ Où tourne l'infér. │ Compte       │
--- └─────────────────────┴────────────────────┴──────────────┘
 
 -- ════════════════════════════════════════════════════════════
--- F. LIMITES BUDGÉTAIRES CORTEX
+-- G. LIMITES BUDGÉTAIRES CORTEX
 -- ════════════════════════════════════════════════════════════
 
 SHOW PARAMETERS LIKE 'CORTEX_CODE%' IN ACCOUNT;
 
--- Pour limiter l'utilisation AI par utilisateur :
+-- Limiter la consommation par utilisateur :
 -- ALTER USER <username> SET CORTEX_CODE_CLI_DAILY_EST_CREDIT_LIMIT_PER_USER = 5;
+
+-- ════════════════════════════════════════════════════════════
+-- H. AUDIT — QUI A UTILISÉ QUELS MODÈLES ?
+-- ════════════════════════════════════════════════════════════
+
+SELECT
+    h.USAGE_TIME,
+    u.NAME AS USER_NAME,
+    h.FUNCTION_NAME,
+    h.MODEL_NAME,
+    h.TOKENS,
+    h.TOKEN_CREDITS,
+    h.QUERY_ID
+FROM SNOWFLAKE.ACCOUNT_USAGE.CORTEX_AISQL_USAGE_HISTORY h
+LEFT JOIN SNOWFLAKE.ACCOUNT_USAGE.USERS u ON h.USER_ID = u.USER_ID
+WHERE h.USAGE_TIME >= DATEADD(day, -7, CURRENT_TIMESTAMP())
+ORDER BY h.USAGE_TIME DESC
+LIMIT 20;
+
+-- ════════════════════════════════════════════════════════════
+-- RÉCAP : 3 LEVIERS DE GOUVERNANCE AI
+-- ════════════════════════════════════════════════════════════
+-- ┌─────────────────────┬────────────────────┬──────────────┐
+-- │ Levier              │ Contrôle           │ Granularité  │
+-- ├─────────────────────┼────────────────────┼──────────────┤
+-- │ MODELS_ALLOWLIST    │ Quels modèles      │ Compte       │
+-- │ MODEL RBAC (roles)  │ Qui utilise quoi   │ Rôle×Modèle  │
+-- │ CROSS_REGION        │ Où tourne l'infér. │ Compte       │
+-- └─────────────────────┴────────────────────┴──────────────┘
