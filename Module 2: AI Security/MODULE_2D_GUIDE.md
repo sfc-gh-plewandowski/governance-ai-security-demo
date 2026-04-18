@@ -1,51 +1,63 @@
-# MODULE 2D — AI_REDACT & Contrôles probabilistes
+# MODULE 2D — Monitoring & Audit AI
 
 ## Guide instructeur
 
 ### Objectif
-Combler le fossé entre le masking par colonne (déterministe) et la protection du texte libre (probabiliste). AI_REDACT détecte et masque les PII dans du texte non structuré — là où le masking traditionnel ne peut pas aider.
+Fermer la boucle de gouvernance : classify → protect → use → **MONITOR** → refine. Démontrer les 3 niveaux de monitoring Cortex AI et les contrôles budgétaires.
 
 ### Durée : 15 min
 
-### Script : `04_ai_redact_demo.sql`
+### Script : `04_ai_monitoring.sql`
 
 ### Structure
 
 | Acte | Temps | Contenu |
 |------|-------|---------|
-| 1. Données brutes | 2 min | Transcriptions support client avec PII mélangées dans du texte libre |
-| 2. AI_REDACT | 5 min | Redaction complète, mode detect, catégories sélectives |
-| 3. Pipeline | 3 min | AI_REDACT → AI_SENTIMENT (analyse sécurisée) |
-| 4. Masking policy + AI_REDACT | 5 min | Pattern ultime : AI_REDACT dans une masking policy dynamique |
+| 1. Audit détaillé | 5 min | 3 vues d'audit (AISQL, AI_FUNCTIONS, QUERY_HISTORY) |
+| 2. Consommation | 4 min | Coût par modèle, par utilisateur, vue de facturation |
+| 3. Anomalies | 3 min | Spike detection, hors heures, modèles coûteux |
+| 4. Budget | 3 min | CORTEX_CODE budget limits par utilisateur |
 
 ### Points d'enseignement
 
-1. **Le fossé** : Le masking par colonne protège les colonnes structurées. Mais quand un client dit "Mon numéro de sécu est 1 85 12 75..." dans un champ texte libre, le masking ne peut rien faire. AI_REDACT comble ce fossé.
+1. **3 niveaux de monitoring** :
+   - `CORTEX_AISQL_USAGE_HISTORY` : détail par appel (tokens, credits, user_id, query_id)
+   - `CORTEX_AI_FUNCTIONS_USAGE_HISTORY` : enrichi avec ROLE_NAMES — essentiel pour l'audit RBAC
+   - `QUERY_HISTORY` : temps réel (~0 latence vs ~2h pour ACCOUNT_USAGE)
 
-2. **3 modes d'AI_REDACT** :
-   - `redact` (défaut) : remplace les PII par `[CATEGORIE]`
-   - `detect` : retourne les spans JSON avec catégorie, texte, positions — pour l'audit
-   - Catégories sélectives : ne masquer que NAME + EMAIL, ou que NATIONAL_ID + PAYMENT_CARD_DATA
+2. **QUERY_HISTORY pour les démos live** : En workshop, `ACCOUNT_USAGE` peut ne pas avoir les données des dernières 2h. `QUERY_HISTORY` avec `ILIKE '%CORTEX%COMPLETE%'` montre les appels faits il y a 5 minutes.
 
-3. **Pattern pipeline** : `AI_REDACT → CREATE TABLE → AI_SENTIMENT`. Le modèle d'analyse ne voit JAMAIS les PII. C'est comme ça qu'on construit des pipelines AI conformes.
+3. **Patterns de détection** :
+   - **Spike** : > 50 appels/heure par utilisateur → anomalie potentielle
+   - **Hors heures** : appels entre 20h et 7h → possible exfiltration via AI
+   - **Modèles coûteux** : deepseek-r1 consomme significativement plus que mistral-7b
 
-4. **Pattern masking policy** (Acte 4) : C'est le moment "wow". On met AI_REDACT DANS une masking policy. Les rôles privilégiés voient le texte brut ; tous les autres voient le texte automatiquement redacté. Gouvernance dynamique alimentée par l'AI.
+4. **Budget Cortex Code** : `CORTEX_CODE_CLI_DAILY_EST_CREDIT_LIMIT_PER_USER` et `CORTEX_CODE_SNOWSIGHT_DAILY_EST_CREDIT_LIMIT_PER_USER`. Valeur -1 = illimité, 0 = désactivé.
 
-5. **Déterministe vs Probabiliste** :
-   - Déterministe (masking, RAP, projection) = murs, 100% fiable
-   - Probabiliste (AI_REDACT, GUARD) = filets de sécurité, très bon mais pas parfait
-   - En production, on veut les DEUX : ceintures ET airbags
+5. **Boucle complète** : La gouvernance AI n'est pas un état, c'est un processus cyclique. Le monitoring alimente le raffinement : si on détecte un pattern anormal, on ajuste les policies. C'est la Dimension 3 en action.
 
 ### ⚠️ Pièges
 
-- **CORTEX.GUARD** n'est PAS disponible sur eu-central-1. Ne pas essayer de le démontrer.
-- **AI_REDACT latence** : ~5-15 sec par appel. Les requêtes avec 5 transcriptions prennent du temps.
-- **SECURITY_WORKSHOP database** : créée par le script, supprimée à la fin. Si le script plante avant le nettoyage, `DROP DATABASE SECURITY_WORKSHOP` pour nettoyer.
-- **Le script utilise des données françaises** mais avec quelques éléments anglais (noms internationaux dans les transcriptions) — c'est volontaire pour un scénario multinational réaliste.
-- **Le nettoyage supprime TOUT** y compris la database. Pas d'impact sur les VOLTAIRE_* databases.
+- **Latence ACCOUNT_USAGE** : ~2h. Les appels Cortex faits pendant le workshop ne seront PAS visibles dans CORTEX_AISQL_USAGE_HISTORY ou CORTEX_AI_FUNCTIONS_USAGE_HISTORY. Utiliser QUERY_HISTORY pour la démo live.
+- **METERING_DAILY_HISTORY** peut être vide si le compte est nouveau ou si les appels Cortex n'ont pas encore été facturés.
+- **Les budgets ne s'appliquent qu'à Cortex Code** (CLI et Snowsight), pas aux appels CORTEX.COMPLETE directs. Mentionner cette limitation.
+- **USER_ID → NAME** : CORTEX_AISQL_USAGE_HISTORY a USER_ID, pas USER_NAME. Le JOIN avec USERS est nécessaire.
 
-### Transition vers 2E
-« On a les contrôles déterministes (masking, RAP, projection) ET les contrôles probabilistes (AI_REDACT). Mais gouverner sans surveiller, c'est construire une porte sans vérifier si quelqu'un passe. Il nous manque le monitoring. »
+### Vues Cortex disponibles (pour référence)
+
+| Vue | Contenu |
+|-----|---------|
+| `CORTEX_AISQL_USAGE_HISTORY` | Appels AI SQL (COMPLETE, TRANSLATE, etc.) |
+| `CORTEX_AI_FUNCTIONS_USAGE_HISTORY` | Idem + ROLE_NAMES |
+| `CORTEX_AGENT_USAGE_HISTORY` | Appels Cortex Agents |
+| `CORTEX_CODE_CLI_USAGE_HISTORY` | Utilisation Cortex Code CLI |
+| `CORTEX_CODE_SNOWSIGHT_USAGE_HISTORY` | Utilisation Cortex Code Snowsight |
+| `CORTEX_ANALYST_USAGE_HISTORY` | Cortex Analyst |
+| `CORTEX_SEARCH_SERVING_USAGE_HISTORY` | Cortex Search |
+| `METERING_DAILY_HISTORY` | Facturation globale par service |
+
+### Transition vers Wrap-up
+« On a couvert les 3 dimensions : gouverner les données, gouverner les capacités, gouverner le contexte. La gouvernance n'est pas héritée — elle est résolue à chaque requête, y compris les requêtes AI. C'est ce que vous pouvez maintenant démontrer à n'importe quel RSSI. »
 
 ### Certification
-- **D4.4** : AI Redact, probabilistic controls
+- **D5.2** : AI Monitoring, audit

@@ -208,5 +208,5 @@ DROP DATABASE IF EXISTS SECURITY_WORKSHOP;
 -- │                                                          │
 -- │  * CORTEX.GUARD n'est pas dispo sur eu-central-1         │
 -- │                                                          │
--- │  → Module 2E : fermer la boucle avec le monitoring       │
+-- │  → Module 2D : fermer la boucle avec le monitoring       │
 -- └───────────────────────────────────────────────────────────┘

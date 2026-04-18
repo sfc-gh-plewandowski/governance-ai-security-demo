@@ -1,45 +1,51 @@
-# MODULE 2C — La preuve : la gouvernance se transmet à l'AI
+# MODULE 2C — AI_REDACT & Contrôles probabilistes
 
 ## Guide instructeur
 
 ### Objectif
-C'est LE moment de l'après-midi. 4 preuves formelles que TOUT ce qu'on a construit le matin (masking, RAP, projection) est respecté quand Cortex AI interroge les données. Réponse définitive à la question du RSSI.
+Combler le fossé entre le masking par colonne (déterministe) et la protection du texte libre (probabiliste). AI_REDACT détecte et masque les PII dans du texte non structuré — là où le masking traditionnel ne peut pas aider.
 
-### Durée : 25 min
+### Durée : 15 min
 
-### Script : `03_governance_carry_forward.sql`
+### Script : `03_ai_redact_demo.sql`
 
 ### Structure
 
-| Preuve | Temps | Ce qu'elle démontre | Rôles comparés |
-|--------|-------|---------------------|----------------|
-| 1. Masking → AI | 7 min | Le modèle reçoit des hash, pas des données réelles | SECURITY_ADMIN vs DATA_ANALYST |
-| 2. RAP → AI | 7 min | Le modèle ne connaît que les lignes autorisées | SECURITY_ADMIN (1000) vs DATA_ANALYST (~208) |
-| 3. Projection → AI | 4 min | Le modèle ne peut PAS accéder aux colonnes interdites | DATA_ANALYST → erreur projection policy |
-| 4. CRM → AI | 7 min | Le masking SIRET se transmet sur un autre domaine | SECURITY_ADMIN vs DATA_ANALYST |
+| Acte | Temps | Contenu |
+|------|-------|---------|
+| 1. Données brutes | 2 min | Transcriptions support client avec PII mélangées dans du texte libre |
+| 2. AI_REDACT | 5 min | Redaction complète, mode detect, catégories sélectives |
+| 3. Pipeline | 3 min | AI_REDACT → AI_SENTIMENT (analyse sécurisée) |
+| 4. Masking policy + AI_REDACT | 5 min | Pattern ultime : AI_REDACT dans une masking policy dynamique |
 
 ### Points d'enseignement
 
-1. **Preuve 1 — Masking → AI** : On affiche côte à côte les colonnes brutes (PERMIS, IBAN) ET le résumé AI. SECURITY_ADMIN voit le vrai permis dans le résumé ; DATA_ANALYST voit "identifiants hashés". Le modèle ne peut pas deviner les données originales à partir d'un hash SHA2.
+1. **Le fossé** : Le masking par colonne protège les colonnes structurées. Mais quand un client dit "Mon numéro de sécu est 1 85 12 75..." dans un champ texte libre, le masking ne peut rien faire. AI_REDACT comble ce fossé.
 
-2. **Preuve 2 — RAP → AI** : Le modèle ne "connaît" que les lignes qu'il peut voir. SECURITY_ADMIN : "1000 employés dans 15 départements". DATA_ANALYST : "~208 employés dans 3 départements". Le modèle ne sait même pas que d'autres départements existent.
+2. **3 modes d'AI_REDACT** :
+   - `redact` (défaut) : remplace les PII par `[CATEGORIE]`
+   - `detect` : retourne les spans JSON avec catégorie, texte, positions — pour l'audit
+   - Catégories sélectives : ne masquer que NAME + EMAIL, ou que NATIONAL_ID + PAYMENT_CARD_DATA
 
-3. **Preuve 3 — Projection → AI** : Même CORTEX.COMPLETE ne peut pas contourner une projection policy. La colonne NIR est bloquée au niveau SQL, avant que le modèle n'entre en jeu. Erreur claire : "restricted by a Projection Policy".
+3. **Pattern pipeline** : `AI_REDACT → CREATE TABLE → AI_SENTIMENT`. Le modèle d'analyse ne voit JAMAIS les PII. C'est comme ça qu'on construit des pipelines AI conformes.
 
-4. **Preuve 4 — CRM → AI** : On sort du domaine RH pour prouver que le même comportement s'applique partout. Le masking SIRET fonctionne identiquement sur VOLTAIRE_CRM.
+4. **Pattern masking policy** (Acte 4) : C'est le moment "wow". On met AI_REDACT DANS une masking policy. Les rôles privilégiés voient le texte brut ; tous les autres voient le texte automatiquement redacté. Gouvernance dynamique alimentée par l'AI.
+
+5. **Déterministe vs Probabiliste** :
+   - Déterministe (masking, RAP, projection) = murs, 100% fiable
+   - Probabiliste (AI_REDACT, GUARD) = filets de sécurité, très bon mais pas parfait
+   - En production, on veut les DEUX : ceintures ET airbags
 
 ### ⚠️ Pièges
 
-- **`USE SECONDARY ROLES NONE`** au début, **`USE SECONDARY ROLES ALL`** à la fin. CRITIQUE.
-- **Preuve 3** : la requête est COMMENTÉE pour éviter une erreur accidentelle. Décommenter pour la démo, puis re-commenter.
-- **WHERE EMPLOYE_ID = 1 vs 3** : DATA_ANALYST ne voit pas EMPLOYE_ID=1 (RAP filtre par département). Utiliser EMPLOYE_ID=3 qui est dans un département autorisé pour DATA_ANALYST.
-- **Latence CORTEX** : 8 appels COMPLETE dans ce module (~30-60 sec chacun). Prévoir de lancer les requêtes SECURITY_ADMIN et DATA_ANALYST en parallèle dans 2 onglets Snowsight.
+- **CORTEX.GUARD** n'est PAS disponible sur eu-central-1. Ne pas essayer de le démontrer.
+- **AI_REDACT latence** : ~5-15 sec par appel. Les requêtes avec 5 transcriptions prennent du temps.
+- **SECURITY_WORKSHOP database** : créée par le script, supprimée à la fin. Si le script plante avant le nettoyage, `DROP DATABASE SECURITY_WORKSHOP` pour nettoyer.
+- **Le script utilise des données françaises** mais avec quelques éléments anglais (noms internationaux dans les transcriptions) — c'est volontaire pour un scénario multinational réaliste.
+- **Le nettoyage supprime TOUT** y compris la database. Pas d'impact sur les VOLTAIRE_* databases.
 
-### Mise en scène
-Ouvrir 2 onglets Snowsight côte à côte : un en SECURITY_ADMIN, un en DATA_ANALYST. Lancer la même requête dans les deux. Laisser les participants comparer visuellement. C'est le moment "aha" qui vend la gouvernance Snowflake.
-
-### Transition vers 2D
-« On a prouvé que les contrôles DÉTERMINISTES (masking, RAP, projection) fonctionnent avec l'AI. Mais que faire quand les PII sont dans du texte libre, pas dans des colonnes ? C'est là qu'interviennent les contrôles PROBABILISTES. »
+### Transition vers 2E
+« On a les contrôles déterministes (masking, RAP, projection) ET les contrôles probabilistes (AI_REDACT). Mais gouverner sans surveiller, c'est construire une porte sans vérifier si quelqu'un passe. Il nous manque le monitoring. »
 
 ### Certification
-- **D4.3** : Governance carry-forward to AI
+- **D4.4** : AI Redact, probabilistic controls

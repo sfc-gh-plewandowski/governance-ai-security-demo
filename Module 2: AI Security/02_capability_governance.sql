@@ -56,8 +56,6 @@ GRANT APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-MISTRAL-LARGE2"
   TO ROLE DATA_ENGINEER;
 GRANT APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-LLAMA3.1-70B"
   TO ROLE DATA_ENGINEER;
-GRANT APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-DEEPSEEK-R1"
-  TO ROLE DATA_ENGINEER;
 
 -- SECURITY_ADMIN : accès total + gestion
 GRANT APPLICATION ROLE SNOWFLAKE."CORTEX-MODEL-ROLE-ALL"
@@ -68,8 +66,11 @@ GRANT APPLICATION ROLE SNOWFLAKE.CORTEX_MODELS_ADMIN
 
 -- 1e. TEST — changer de rôle et vérifier
 
+
 USE ROLE DATA_ANALYST;
 USE WAREHOUSE WORKSHOP_WH;
+USE SECONDARY ROLES NONE;
+
 
 -- ✅ mistral-large2 autorisé
 SELECT SNOWFLAKE.CORTEX.COMPLETE(
@@ -84,7 +85,7 @@ SELECT SNOWFLAKE.CORTEX.COMPLETE(
 ) AS ANALYST_DEEPSEEK_BLOQUE;
 
 -- ✅ AI_TRANSLATE utilise arctic-translate (autorisé)
-SELECT SNOWFLAKE.CORTEX.TRANSLATE(
+SELECT SNOWFLAKE.CORTEX.AI_TRANSLATE(
   'Data governance is essential for AI security.', 'en', 'fr'
 ) AS ANALYST_TRANSLATE_OK;
 
@@ -92,9 +93,9 @@ SELECT SNOWFLAKE.CORTEX.TRANSLATE(
 USE ROLE DATA_ENGINEER;
 USE WAREHOUSE WORKSHOP_WH;
 
--- ✅ deepseek-r1 autorisé pour DATA_ENGINEER
+-- ✅ llama3.1-70b autorisé pour DATA_ENGINEER
 SELECT SNOWFLAKE.CORTEX.COMPLETE(
-  'deepseek-r1',
+  'llama3.1-70b',
   'En une phrase : qu''est-ce que le model RBAC ?'
 ) AS ENGINEER_DEEPSEEK_OK;
 
@@ -208,6 +209,5 @@ GRANT DATABASE ROLE SNOWFLAKE.CORTEX_USER TO ROLE PUBLIC;
 -- │   • CORTEX_USER retiré de PUBLIC                         │
 -- │   • Chaque rôle reçoit les features nécessaires          │
 -- │                                                          │
--- │  Combinés : on contrôle QUEL modèle ET QUELLE feature    │
--- │  → Module 2C : on PROUVE que Dim 1 + Dim 2 fonctionnent  │
+-- │  → Module 2C : AI_REDACT — contrôles probabilistes       │
 -- └───────────────────────────────────────────────────────────┘
