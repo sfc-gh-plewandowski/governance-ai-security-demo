@@ -6,7 +6,7 @@
 Une **inférence** est le processus par lequel un modèle AI génère une réponse à partir d'une entrée (prompt) — c'est le moment où le modèle « réfléchit ». **Exécuter une inférence** dans Snowflake signifie envoyer des données et un prompt à un modèle Cortex (via `CORTEX.COMPLETE`) et recevoir la réponse générée.
 
 ### Objectif
-Poser les fondations de l'après-midi : comprendre OÙ l'inférence s'exécute, QUELS modèles sont disponibles, et PROUVER que la gouvernance s'applique avant que le modèle ne voie les données — aussi bien le masking (colonnes) que la RAP (lignes/domaines).
+Poser les fondations de l'après-midi : comprendre OÙ l'inférence s'exécute, QUELS modèles sont disponibles, et PROUVER que la gouvernance data (masking, RAP, projection) s'applique avant que le modèle ne voie les données.
 
 ### Durée : 20 min
 
@@ -20,6 +20,7 @@ Poser les fondations de l'après-midi : comprendre OÙ l'inférence s'exécute, 
 | B. Model Allowlist | 4 min | `CORTEX_MODELS_ALLOWLIST` — restriction/autorisation de modèles au niveau compte |
 | C. Masking → AI | 6 min | Même profil employé, 2 rôles → le modèle reçoit hash ou données en clair |
 | D. RAP → AI | 6 min | Le modèle ne connaît que les départements/domaines autorisés par le rôle |
+| E. Projection → AI | 2 min | La projection policy bloque l'accès colonne même via CORTEX.COMPLETE |
 
 ### Points d'enseignement
 
@@ -36,6 +37,8 @@ Poser les fondations de l'après-midi : comprendre OÙ l'inférence s'exécute, 
    - DATA_ANALYST : Commercial, Marketing, Communication (~208 employés)
    - DATA_ENGINEER : Informatique, R&D, Production (~200 employés)
 
+5. **Projection → AI** (section E) : La projection policy est le contrôle le plus strict — elle bloque totalement l'accès à une colonne (NIR). Contrairement au masking qui renvoie un hash, la projection renvoie une erreur SQL. Le modèle ne peut même pas tenter de lire la colonne.
+
 ### ⚠️ Pièges
 
 - **`USE SECONDARY ROLES NONE`** : OBLIGATOIRE avant les tests cross-rôle (sections C et D). Sans ça, toutes les roles sont actifs et le masking/RAP semble cassé.
@@ -45,7 +48,7 @@ Poser les fondations de l'après-midi : comprendre OÙ l'inférence s'exécute, 
 - **EMPLOYE_ID** : en section C, utiliser EMPLOYE_ID=1 pour SECURITY_ADMIN et EMPLOYE_ID=3 pour DATA_ANALYST (l'employé 1 peut ne pas être visible pour DATA_ANALYST selon le département).
 
 ### Transition vers 2B
-« On vient de voir les contrôles au niveau COMPTE — où et quels modèles — et on a prouvé que masking et RAP s'appliquent avant l'inférence. Maintenant on descend au niveau RÔLE : qui utilise quel modèle, et quelle fonctionnalité Cortex. »
+« On vient de voir les contrôles au niveau COMPTE — où et quels modèles — et on a prouvé que masking, RAP et projection s'appliquent avant l'inférence. Maintenant on descend au niveau RÔLE : qui utilise quel modèle, et quelle fonctionnalité Cortex. »
 
 ### Certification
 - **D4.1** : Inference flow, trust boundary
