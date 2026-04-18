@@ -1,11 +1,11 @@
 -- ============================================================
--- MODULE 3B — GOUVERNANCE DES CAPACITÉS (DIMENSION 2)
+-- MODULE 2B — GOUVERNANCE DES CAPACITÉS (DIMENSION 2)
 -- ============================================================
 -- Dimension 2 : qui peut utiliser quel modèle, quel agent,
 -- quels outils. On ne contrôle pas juste les DONNÉES (Dim 1),
 -- on contrôle aussi les CAPACITÉS AI elles-mêmes.
 --
--- Pré-requis : Module 3A exécuté
+-- Pré-requis : Module 2A exécuté
 -- ============================================================
 
 USE ROLE ACCOUNTADMIN;

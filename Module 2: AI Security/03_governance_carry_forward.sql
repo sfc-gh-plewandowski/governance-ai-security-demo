@@ -1,5 +1,5 @@
 -- ============================================================
--- MODULE 3C — PREUVE QUE LA GOUVERNANCE SE TRANSMET À L'IA
+-- MODULE 2C — PREUVE QUE LA GOUVERNANCE SE TRANSMET À L'IA
 -- ============================================================
 -- C'est LE moment de l'après-midi. On prouve que tout ce
 -- qu'on a construit le matin (masking, RAP, projection)
@@ -8,7 +8,7 @@
 -- Le modèle ne voit que ce que le rôle voit.
 -- Même requête AI, résultats différents selon le rôle.
 --
--- Pré-requis : Modules 1A–1D + 3A + 3B exécutés
+-- Pré-requis : Modules 1A–1C + 2A + 2B exécutés
 -- ============================================================
 
 USE ROLE ACCOUNTADMIN;

@@ -1,8 +1,8 @@
 -- ============================================================
--- MODULE 3D: AI_REDACT — PII Detection & Redaction
+-- MODULE 2D: AI_REDACT — PII Detection & Redaction
 -- End-to-End Demo
 -- ============================================================
--- Prerequisites: Modules 1A–1D executed (SECURITY_WORKSHOP database,
+-- Prerequisites: Modules 1A–1C executed (SECURITY_WORKSHOP database,
 --                WORKSHOP_WH warehouse, roles created)
 -- Time estimate: 25 minutes
 -- ============================================================

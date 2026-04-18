@@ -1,5 +1,5 @@
 -- ============================================================
--- MODULE 3A — LE FLUX D'INFÉRENCE AI ET LA FRONTIÈRE DE CONFIANCE
+-- MODULE 2A — LE FLUX D'INFÉRENCE AI ET LA FRONTIÈRE DE CONFIANCE
 -- ============================================================
 -- Ce module est surtout CONCEPTUEL. Le SQL ici sert à
 -- illustrer les paramètres et vérifier la configuration.
@@ -7,7 +7,7 @@
 -- L'objectif : comprendre le flux complet d'une requête AI
 -- et identifier OÙ chaque dimension de gouvernance s'applique.
 --
--- Pré-requis : Modules 1A–1D exécutés (gouvernance en place)
+-- Pré-requis : Modules 1A–1C exécutés (gouvernance en place)
 -- ============================================================
 
 USE ROLE ACCOUNTADMIN;

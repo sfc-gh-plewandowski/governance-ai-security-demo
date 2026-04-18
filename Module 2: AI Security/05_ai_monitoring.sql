@@ -1,5 +1,5 @@
 -- ============================================================
--- MODULE 3E — MONITORING ET AUDIT AI
+-- MODULE 2E — MONITORING ET AUDIT AI
 -- ============================================================
 -- La gouvernance inclut l'auditabilité.
 -- On surveille : qui appelle quel modèle, combien de fois,
@@ -7,7 +7,7 @@
 --
 -- Boucle complète : classify → protect → use → MONITOR → refine
 --
--- Pré-requis : Modules 3A–3C exécutés (avoir fait des appels Cortex)
+-- Pré-requis : Modules 2A–2C exécutés (avoir fait des appels Cortex)
 -- ============================================================
 
 USE ROLE ACCOUNTADMIN;
