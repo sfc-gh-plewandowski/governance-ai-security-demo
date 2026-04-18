@@ -2,8 +2,9 @@
 -- MODULE 2B — GOUVERNANCE DES CAPACITÉS (DIMENSION 2)
 -- ============================================================
 -- Contrôle granulaire de l'accès AI au niveau rôle :
---   1. Model RBAC    → rôles applicatifs par modèle (GA 2025)
---   2. Feature Access → rôles database par fonctionnalité Cortex
+--   1. Model RBAC         → rôles applicatifs par modèle (GA 2025)
+--   2. Feature Access     → database roles par fonctionnalité Cortex
+--   3. LLM Privileges     → USE AI FUNCTIONS au niveau compte
 --
 -- Pré-requis : Module 2A exécuté
 -- ============================================================
@@ -97,7 +98,7 @@ USE WAREHOUSE WORKSHOP_WH;
 SELECT SNOWFLAKE.CORTEX.COMPLETE(
   'llama3.1-70b',
   'En une phrase : qu''est-ce que le model RBAC ?'
-) AS ENGINEER_DEEPSEEK_OK;
+) AS ENGINEER_LLAMA_OK;
 
 
 USE ROLE SECURITY_ADMIN;
@@ -167,9 +168,10 @@ REVOKE DATABASE ROLE SNOWFLAKE.CORTEX_USER FROM ROLE PUBLIC;
 -- DATA_ANALYST → fonctions AI scalaires seulement (pas agents, pas search)
 GRANT DATABASE ROLE SNOWFLAKE.AI_FUNCTIONS_USER TO ROLE DATA_ANALYST;
 
--- DATA_ENGINEER → fonctions AI + agents
+-- DATA_ENGINEER → fonctions AI + agents + embedding
 GRANT DATABASE ROLE SNOWFLAKE.AI_FUNCTIONS_USER TO ROLE DATA_ENGINEER;
 GRANT DATABASE ROLE SNOWFLAKE.CORTEX_AGENT_USER TO ROLE DATA_ENGINEER;
+GRANT DATABASE ROLE SNOWFLAKE.CORTEX_EMBED_USER TO ROLE DATA_ENGINEER;
 
 -- SECURITY_ADMIN → accès complet Cortex
 GRANT DATABASE ROLE SNOWFLAKE.CORTEX_USER TO ROLE SECURITY_ADMIN;
@@ -177,11 +179,27 @@ GRANT DATABASE ROLE SNOWFLAKE.CORTEX_USER TO ROLE SECURITY_ADMIN;
 -- 2c. TEST
 USE ROLE DATA_ANALYST;
 USE WAREHOUSE WORKSHOP_WH;
+USE SECONDARY ROLES NONE;
+
+-- ✅ AI function scalaire → OK (AI_FUNCTIONS_USER suffit)
+SELECT SNOWFLAKE.CORTEX.COMPLETE(
+  'mistral-large2', 'Bonjour — test feature access DATA_ANALYST.'
+) AS ANALYST_AI_FUNCTION_OK;
+
+USE ROLE DATA_ENGINEER;
+USE WAREHOUSE WORKSHOP_WH;
+USE SECONDARY ROLES NONE;
 
 -- ✅ AI function scalaire → OK
 SELECT SNOWFLAKE.CORTEX.COMPLETE(
-  'mistral-large2', 'Bonjour — test feature access.'
-) AS ANALYST_AI_FUNCTION_OK;
+  'mistral-large2', 'Bonjour — test feature access DATA_ENGINEER.'
+) AS ENGINEER_AI_FUNCTION_OK;
+
+-- ✅ Embedding → OK (CORTEX_EMBED_USER)
+SELECT SNOWFLAKE.CORTEX.EMBED_TEXT_1024(
+  'snowflake-arctic-embed-l-v2.0',
+  'Test embedding pour DATA_ENGINEER.'
+) AS ENGINEER_EMBED_OK;
 
 
 -- 2d. NETTOYAGE Acte 2
@@ -190,10 +208,83 @@ USE ROLE ACCOUNTADMIN;
 REVOKE DATABASE ROLE SNOWFLAKE.AI_FUNCTIONS_USER FROM ROLE DATA_ANALYST;
 REVOKE DATABASE ROLE SNOWFLAKE.AI_FUNCTIONS_USER FROM ROLE DATA_ENGINEER;
 REVOKE DATABASE ROLE SNOWFLAKE.CORTEX_AGENT_USER FROM ROLE DATA_ENGINEER;
+REVOKE DATABASE ROLE SNOWFLAKE.CORTEX_EMBED_USER FROM ROLE DATA_ENGINEER;
 REVOKE DATABASE ROLE SNOWFLAKE.CORTEX_USER FROM ROLE SECURITY_ADMIN;
 
 -- Restaurer l'accès global
 GRANT DATABASE ROLE SNOWFLAKE.CORTEX_USER TO ROLE PUBLIC;
+
+
+-- ════════════════════════════════════════════════════════════
+-- ACTE 3 : LLM PRIVILEGES — USE AI FUNCTIONS ON ACCOUNT
+-- ════════════════════════════════════════════════════════════
+-- Privilège de niveau COMPTE, indépendant des database roles.
+-- Par défaut : USE AI FUNCTIONS est GRANTED à PUBLIC.
+--
+-- Un utilisateur a besoin des DEUX pour appeler une fonction AI :
+--   1. USE AI FUNCTIONS ON ACCOUNT  (account-level privilege)
+--   2. CORTEX_USER ou AI_FUNCTIONS_USER (database role)
+--
+-- Si l'un des deux manque → accès refusé.
+-- USE AI FUNCTIONS ne contrôle PAS quel modèle est accessible.
+-- C'est un interrupteur général ON/OFF pour les fonctions AI.
+--
+-- Géré uniquement par ACCOUNTADMIN.
+
+-- 3a. Vérifier l'état actuel du privilège
+SHOW GRANTS OF PRIVILEGE USE AI FUNCTIONS ON ACCOUNT;
+
+-- 3b. DEMO : révoquer USE AI FUNCTIONS de PUBLIC
+-- Après cette révocation, même un rôle avec CORTEX_USER
+-- ne pourra plus appeler de fonction AI.
+REVOKE USE AI FUNCTIONS ON ACCOUNT FROM ROLE PUBLIC;
+
+-- 3c. TEST — DATA_ANALYST a toujours CORTEX_USER (via PUBLIC hérité)
+-- mais n'a plus USE AI FUNCTIONS → bloqué
+USE ROLE DATA_ANALYST;
+USE WAREHOUSE WORKSHOP_WH;
+USE SECONDARY ROLES NONE;
+
+-- ❌ Bloqué : USE AI FUNCTIONS manquant
+SELECT SNOWFLAKE.CORTEX.COMPLETE(
+  'mistral-large2',
+  'Ce message ne devrait pas passer — USE AI FUNCTIONS révoqué.'
+) AS ANALYST_BLOQUE_SANS_PRIVILEGE;
+
+-- 3d. Accorder USE AI FUNCTIONS à des rôles spécifiques
+USE ROLE ACCOUNTADMIN;
+
+GRANT USE AI FUNCTIONS ON ACCOUNT TO ROLE DATA_ANALYST;
+GRANT USE AI FUNCTIONS ON ACCOUNT TO ROLE DATA_ENGINEER;
+GRANT USE AI FUNCTIONS ON ACCOUNT TO ROLE SECURITY_ADMIN;
+
+-- 3e. TEST — DATA_ANALYST a maintenant USE AI FUNCTIONS → OK
+USE ROLE DATA_ANALYST;
+USE WAREHOUSE WORKSHOP_WH;
+USE SECONDARY ROLES NONE;
+
+-- ✅ USE AI FUNCTIONS restauré pour ce rôle
+SELECT SNOWFLAKE.CORTEX.COMPLETE(
+  'mistral-large2',
+  'USE AI FUNCTIONS rétabli — l''accès fonctionne.'
+) AS ANALYST_PRIVILEGE_RESTAURE;
+
+-- 3f. NETTOYAGE Acte 3
+USE ROLE ACCOUNTADMIN;
+
+REVOKE USE AI FUNCTIONS ON ACCOUNT FROM ROLE DATA_ANALYST;
+REVOKE USE AI FUNCTIONS ON ACCOUNT FROM ROLE DATA_ENGINEER;
+REVOKE USE AI FUNCTIONS ON ACCOUNT FROM ROLE SECURITY_ADMIN;
+
+-- Restaurer l'accès global
+GRANT USE AI FUNCTIONS ON ACCOUNT TO ROLE PUBLIC;
+
+
+-- ════════════════════════════════════════════════════════════
+-- RESET
+-- ════════════════════════════════════════════════════════════
+USE ROLE ACCOUNTADMIN;
+USE SECONDARY ROLES ALL;
 
 
 -- ┌───────────────────────────────────────────────────────────┐
@@ -208,6 +299,13 @@ GRANT DATABASE ROLE SNOWFLAKE.CORTEX_USER TO ROLE PUBLIC;
 -- │  Acte 2 — Feature Access (database roles)                │
 -- │   • CORTEX_USER retiré de PUBLIC                         │
 -- │   • Chaque rôle reçoit les features nécessaires          │
+-- │   • AI_FUNCTIONS_USER, CORTEX_AGENT_USER,                │
+-- │     CORTEX_EMBED_USER = segmentation fine                │
+-- │                                                          │
+-- │  Acte 3 — LLM Privileges (account-level)                 │
+-- │   • USE AI FUNCTIONS ON ACCOUNT = interrupteur global     │
+-- │   • Requis EN PLUS des database roles                    │
+-- │   • Révocation de PUBLIC → grant ciblé par rôle          │
 -- │                                                          │
 -- │  → Module 2C : AI_REDACT — contrôles probabilistes       │
 -- └───────────────────────────────────────────────────────────┘
