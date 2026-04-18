@@ -29,8 +29,7 @@ SHOW PARAMETERS LIKE 'CORTEX%' IN ACCOUNT;
 --   AZURE_EU      → peut aller vers Azure EU
 --
 -- IMPACT RGPD : si le compte est en eu-central-1 et qu'on
--- active AWS_US, les données transitent hors UE pendant
--- l'inférence. Le DPO doit le savoir.
+-- active AWS_US, les données transitent hors UE pendant l'inférence. 
 
 SELECT CURRENT_REGION() AS REGION_COMPTE;
 
