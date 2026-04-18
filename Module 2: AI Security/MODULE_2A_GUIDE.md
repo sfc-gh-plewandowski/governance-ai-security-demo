@@ -2,6 +2,9 @@
 
 ## Guide instructeur
 
+### Qu'est-ce qu'une inférence ?
+Une **inférence** est le processus par lequel un modèle AI génère une réponse à partir d'une entrée (prompt) — c'est le moment où le modèle « réfléchit ». **Exécuter une inférence** dans Snowflake signifie envoyer des données et un prompt à un modèle Cortex (via `CORTEX.COMPLETE`) et recevoir la réponse générée.
+
 ### Objectif
 Poser les fondations de l'après-midi : comprendre OÙ l'inférence s'exécute, QUELS modèles sont disponibles, et PROUVER que la gouvernance du matin s'applique avant que le modèle ne voie les données.
 
