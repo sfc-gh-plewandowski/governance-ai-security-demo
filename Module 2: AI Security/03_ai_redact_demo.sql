@@ -232,7 +232,8 @@ FROM DIRECTORY(@FACTURES_PDF)
 WHERE RELATIVE_PATH LIKE '%.pdf';
 
 -- 5d. ÉTAPE 2 : AI_EXTRACT — champs structurés depuis le texte
--- AI_EXTRACT extrait les entités demandées en langage naturel.
+-- AI_EXTRACT retourne {"error": null, "response": {champs...}}
+-- Les valeurs sont sous :response:<nom_champ>
 SELECT
     RELATIVE_PATH AS FICHIER,
     SNOWFLAKE.CORTEX.AI_EXTRACT(
@@ -271,14 +272,14 @@ extracted AS (
 )
 SELECT
     FICHIER,
-    E:invoice_number::STRING    AS NO_FACTURE,
-    E:supplier_name::STRING     AS FOURNISSEUR,
-    E:supplier_email::STRING    AS EMAIL_FOURNISSEUR,
-    E:supplier_phone::STRING    AS TEL_FOURNISSEUR,
-    E:supplier_iban::STRING     AS IBAN_FOURNISSEUR,
-    E:supplier_siret::STRING    AS SIRET_FOURNISSEUR,
-    E:total_ttc::NUMBER(12,2)   AS TOTAL_TTC,
-    E:tva_rate::NUMBER(5,2)     AS TVA_POURCENT,
+    E:response:invoice_number::STRING    AS NO_FACTURE,
+    E:response:supplier_name::STRING     AS FOURNISSEUR,
+    E:response:supplier_email::STRING    AS EMAIL_FOURNISSEUR,
+    E:response:supplier_phone::STRING    AS TEL_FOURNISSEUR,
+    E:response:supplier_iban::STRING     AS IBAN_FOURNISSEUR,
+    E:response:supplier_siret::STRING    AS SIRET_FOURNISSEUR,
+    E:response:total_ttc::NUMBER(12,2)   AS TOTAL_TTC,
+    E:response:tva_rate::STRING          AS TVA_POURCENT,
     CONTENU_BRUT
 FROM extracted;
 
