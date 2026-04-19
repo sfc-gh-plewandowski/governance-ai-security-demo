@@ -1,3 +1,4 @@
+-- CERT: D5 Securing AI/ML (12%) — trust boundary, projection proof, inference flow
 -- ============================================================
 -- MODULE 2A — FLUX D'INFÉRENCE AI & FRONTIÈRE DE CONFIANCE
 -- ============================================================

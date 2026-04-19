@@ -1,5 +1,6 @@
+-- CERT: D3 Auditing & Monitoring (18%) + D5 Securing AI/ML (12%) — AI observability, QUERY_HISTORY, Trust Center
 -- ============================================================
--- MODULE 2E — MONITORING & AUDIT AI
+-- MODULE 2D — MONITORING & AUDIT AI
 -- ============================================================
 -- Boucle de gouvernance : classify → protect → use → MONITOR → refine
 --

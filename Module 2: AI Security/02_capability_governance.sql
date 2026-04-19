@@ -1,3 +1,4 @@
+-- CERT: D5 Securing AI/ML (12%) + D1 Access Control (22%) — model RBAC, feature access database roles
 -- ============================================================
 -- MODULE 2B — GOUVERNANCE DES CAPACITÉS (DIMENSION 2)
 -- ============================================================

@@ -1,5 +1,6 @@
+-- CERT: D5 Securing AI/ML (12%) + D2 Data Protection (30%) — AI_REDACT, masking policies, production pipeline
 -- ============================================================
--- MODULE 2D — AI_REDACT & CONTRÔLES PROBABILISTES
+-- MODULE 2C — AI_REDACT & CONTRÔLES PROBABILISTES
 -- ============================================================
 -- AI_REDACT détecte et masque les PII dans du texte libre,
 -- là où le masking par colonne ne peut pas aider.
