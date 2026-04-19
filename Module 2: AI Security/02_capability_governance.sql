@@ -232,7 +232,8 @@ GRANT DATABASE ROLE SNOWFLAKE.CORTEX_USER TO ROLE PUBLIC;
 -- Géré uniquement par ACCOUNTADMIN.
 
 -- 3a. Vérifier l'état actuel du privilège
-SHOW GRANTS OF PRIVILEGE USE AI FUNCTIONS ON ACCOUNT;
+SHOW GRANTS ON ACCOUNT;
+-- Chercher la ligne : USE AI FUNCTIONS | ROLE | PUBLIC
 
 -- 3b. DEMO : révoquer USE AI FUNCTIONS de PUBLIC
 -- Après cette révocation, même un rôle avec CORTEX_USER
