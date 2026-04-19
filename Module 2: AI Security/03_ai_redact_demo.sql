@@ -13,9 +13,9 @@
 --   2. AI_REDACT : redact + detect + catégories sélectives
 --   3. Pipeline : AI_REDACT → AI_SENTIMENT (analyse sécurisée)
 --   4. Intégration gouvernance : AI_REDACT dans une masking policy
---   5. Pipeline production : PDF → AI_PARSE → AI_REDACT → masking
+--   5. Pipeline production : PDF → PARSE → EXTRACT → masking + AI_REDACT
 --
--- Pré-requis : Modules 2A–2C exécutés
+-- Pré-requis : Modules 2A–2B exécutés
 -- ============================================================
 
 USE ROLE ACCOUNTADMIN;
@@ -189,15 +189,21 @@ WHERE TICKET_ID = 1;
 
 
 -- ════════════════════════════════════════════════════════════
--- ACTE 5 : PIPELINE PRODUCTION — PDF → PARSE → REDACT → MASKING
+-- ACTE 5 : PIPELINE PRODUCTION — PDF → PARSE → EXTRACT → GOUVERNANCE
 -- ════════════════════════════════════════════════════════════
--- Pattern réel : des factures PDF arrivent sur un stage.
--- On extrait le texte (AI_PARSE_DOCUMENT), on redacte les PII
--- (AI_REDACT), et on protège la colonne brute par une masking
--- policy. Seuls les rôles privilégiés voient le texte original.
+-- Pattern production réel :
+--   1. AI_PARSE_DOCUMENT  → extrait le texte brut du PDF
+--   2. AI_EXTRACT         → extrait les champs structurés
+--   3. On stocke les DEUX : texte brut + colonnes structurées
+--   4. Masking policies   → colonnes structurées (déterministe)
+--   5. AI_REDACT          → colonne texte brut (probabiliste)
+--
+-- Résultat : chaque type de donnée est protégé par le bon outil.
+--   Structuré (IBAN, email, tél) → masking policy classique
+--   Non-structuré (texte libre)  → AI_REDACT via masking policy
 --
 -- Pré-requis : 3 factures PDF uploadées dans le stage
---   (script invoices/ du repo grocery-chain-security)
+--   (data/factures_demo.zip dans le repo)
 
 USE ROLE ACCOUNTADMIN;
 USE DATABASE SECURITY_WORKSHOP;
@@ -206,91 +212,138 @@ USE DATABASE SECURITY_WORKSHOP;
 CREATE OR REPLACE STAGE FACTURES_PDF
     ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE')
     DIRECTORY = (ENABLE = TRUE)
-    COMMENT = 'Factures fournisseurs PDF pour démo AI_PARSE + AI_REDACT';
+    COMMENT = 'Factures fournisseurs PDF pour démo pipeline production';
 
 -- 5b. Uploader les factures (exécuter dans SnowSQL ou Snowsight)
--- PUT file:///path/to/invoices/FAC-2025-1001.pdf @FACTURES_PDF AUTO_COMPRESS=FALSE;
--- PUT file:///path/to/invoices/FAC-2025-1002.pdf @FACTURES_PDF AUTO_COMPRESS=FALSE;
--- PUT file:///path/to/invoices/FAC-2025-1003.pdf @FACTURES_PDF AUTO_COMPRESS=FALSE;
+-- PUT file:///path/to/data/FAC-2025-1001.pdf @FACTURES_PDF AUTO_COMPRESS=FALSE;
+-- PUT file:///path/to/data/FAC-2025-1002.pdf @FACTURES_PDF AUTO_COMPRESS=FALSE;
+-- PUT file:///path/to/data/FAC-2025-1003.pdf @FACTURES_PDF AUTO_COMPRESS=FALSE;
 
--- Vérifier que les fichiers sont bien sur le stage
 LIST @FACTURES_PDF;
 ALTER STAGE FACTURES_PDF REFRESH;
 
--- 5c. AI_PARSE_DOCUMENT — extraire le texte des PDF
+-- 5c. ÉTAPE 1 : AI_PARSE_DOCUMENT — texte brut du PDF
 SELECT
     RELATIVE_PATH AS FICHIER,
-    SNOWFLAKE.CORTEX.PARSE_DOCUMENT(
-        @FACTURES_PDF,
-        RELATIVE_PATH,
-        {'mode': 'LAYOUT'}
-    ):content::VARCHAR AS CONTENU_BRUT
+    LEFT(SNOWFLAKE.CORTEX.PARSE_DOCUMENT(
+        @FACTURES_PDF, RELATIVE_PATH, {'mode': 'LAYOUT'}
+    ):content::VARCHAR, 300) AS APERCU_TEXTE_BRUT
 FROM DIRECTORY(@FACTURES_PDF)
 WHERE RELATIVE_PATH LIKE '%.pdf';
 
--- 5d. Pipeline complet : PARSE → REDACT → table sécurisée
-CREATE OR REPLACE TABLE FACTURES_PARSED AS
+-- 5d. ÉTAPE 2 : AI_EXTRACT — champs structurés depuis le texte
+-- AI_EXTRACT extrait les entités demandées en langage naturel.
+SELECT
+    RELATIVE_PATH AS FICHIER,
+    SNOWFLAKE.CORTEX.AI_EXTRACT(
+        SNOWFLAKE.CORTEX.PARSE_DOCUMENT(
+            @FACTURES_PDF, RELATIVE_PATH, {'mode': 'LAYOUT'}
+        ):content::VARCHAR,
+        ['invoice_number', 'supplier_name', 'supplier_email',
+         'supplier_phone', 'supplier_iban', 'supplier_siret',
+         'total_ttc', 'tva_rate']
+    ) AS CHAMPS_EXTRAITS
+FROM DIRECTORY(@FACTURES_PDF)
+WHERE RELATIVE_PATH LIKE '%.pdf';
+
+-- 5e. ÉTAPE 3 : Construire la table production (structuré + brut)
+-- On garde les colonnes structurées ET le texte brut dans la même table.
+CREATE OR REPLACE TABLE FACTURES_PRODUCTION AS
 WITH parsed AS (
     SELECT
         RELATIVE_PATH AS FICHIER,
         SNOWFLAKE.CORTEX.PARSE_DOCUMENT(
-            @FACTURES_PDF,
-            RELATIVE_PATH,
-            {'mode': 'LAYOUT'}
+            @FACTURES_PDF, RELATIVE_PATH, {'mode': 'LAYOUT'}
         ):content::VARCHAR AS CONTENU_BRUT
     FROM DIRECTORY(@FACTURES_PDF)
     WHERE RELATIVE_PATH LIKE '%.pdf'
+),
+extracted AS (
+    SELECT
+        FICHIER,
+        CONTENU_BRUT,
+        SNOWFLAKE.CORTEX.AI_EXTRACT(CONTENU_BRUT,
+            ['invoice_number', 'supplier_name', 'supplier_email',
+             'supplier_phone', 'supplier_iban', 'supplier_siret',
+             'total_ttc', 'tva_rate']
+        ) AS E
+    FROM parsed
 )
 SELECT
     FICHIER,
-    CONTENU_BRUT,
-    SNOWFLAKE.CORTEX.AI_REDACT(CONTENU_BRUT) AS CONTENU_REDACTE,
-    REGEXP_SUBSTR(CONTENU_BRUT, 'No Facture:\\s*(FAC-[\\d-]+)', 1, 1, 'e') AS NO_FACTURE,
-    REGEXP_SUBSTR(CONTENU_BRUT, 'TOTAL TTC:\\s+([\\d.]+)', 1, 1, 'e')::NUMBER(12,2) AS TOTAL_TTC
-FROM parsed;
+    E:invoice_number::STRING    AS NO_FACTURE,
+    E:supplier_name::STRING     AS FOURNISSEUR,
+    E:supplier_email::STRING    AS EMAIL_FOURNISSEUR,
+    E:supplier_phone::STRING    AS TEL_FOURNISSEUR,
+    E:supplier_iban::STRING     AS IBAN_FOURNISSEUR,
+    E:supplier_siret::STRING    AS SIRET_FOURNISSEUR,
+    E:total_ttc::NUMBER(12,2)   AS TOTAL_TTC,
+    E:tva_rate::NUMBER(5,2)     AS TVA_POURCENT,
+    CONTENU_BRUT
+FROM extracted;
 
--- Vérifier : colonnes brutes vs redactées
-SELECT
-    NO_FACTURE,
-    TOTAL_TTC,
-    LEFT(CONTENU_BRUT, 200) AS APERCU_BRUT,
-    LEFT(CONTENU_REDACTE, 200) AS APERCU_REDACTE
-FROM FACTURES_PARSED;
+SELECT * FROM FACTURES_PRODUCTION;
 
--- 5e. Masking policy sur la colonne brute
+-- 5f. ÉTAPE 4 : Masking policies sur les colonnes STRUCTURÉES
+-- Même approche que le Module 1 — déterministe, par colonne.
+CREATE OR REPLACE MASKING POLICY MASK_IBAN
+AS (val STRING) RETURNS STRING ->
+    CASE
+        WHEN IS_ROLE_IN_SESSION('SECURITY_ADMIN') THEN val
+        ELSE '****' || RIGHT(val, 4)
+    END;
+
+CREATE OR REPLACE MASKING POLICY MASK_CONTACT
+AS (val STRING) RETURNS STRING ->
+    CASE
+        WHEN IS_ROLE_IN_SESSION('SECURITY_ADMIN') THEN val
+        ELSE '***MASQUÉ***'
+    END;
+
+ALTER TABLE FACTURES_PRODUCTION
+    MODIFY COLUMN IBAN_FOURNISSEUR SET MASKING POLICY MASK_IBAN;
+ALTER TABLE FACTURES_PRODUCTION
+    MODIFY COLUMN EMAIL_FOURNISSEUR SET MASKING POLICY MASK_CONTACT;
+ALTER TABLE FACTURES_PRODUCTION
+    MODIFY COLUMN TEL_FOURNISSEUR SET MASKING POLICY MASK_CONTACT;
+ALTER TABLE FACTURES_PRODUCTION
+    MODIFY COLUMN SIRET_FOURNISSEUR SET MASKING POLICY MASK_CONTACT;
+
+-- 5g. ÉTAPE 5 : AI_REDACT sur la colonne NON-STRUCTURÉE
+-- Le texte brut contient les mêmes PII + d'autres non extraites.
+-- AI_REDACT attrape tout ce qui est dans le texte libre.
 CREATE OR REPLACE MASKING POLICY MASK_FACTURE_BRUT
-AS (val STRING)
-RETURNS STRING ->
+AS (val STRING) RETURNS STRING ->
     CASE
         WHEN IS_ROLE_IN_SESSION('SECURITY_ADMIN') THEN val
         ELSE SNOWFLAKE.CORTEX.AI_REDACT(val)
     END;
 
-ALTER TABLE FACTURES_PARSED
-    MODIFY COLUMN CONTENU_BRUT
-    SET MASKING POLICY MASK_FACTURE_BRUT;
+ALTER TABLE FACTURES_PRODUCTION
+    MODIFY COLUMN CONTENU_BRUT SET MASKING POLICY MASK_FACTURE_BRUT;
 
-GRANT SELECT ON TABLE FACTURES_PARSED TO ROLE SECURITY_ADMIN;
-GRANT SELECT ON TABLE FACTURES_PARSED TO ROLE DATA_ANALYST;
-GRANT SELECT ON TABLE FACTURES_PARSED TO ROLE DATA_ENGINEER;
+GRANT SELECT ON TABLE FACTURES_PRODUCTION TO ROLE SECURITY_ADMIN;
+GRANT SELECT ON TABLE FACTURES_PRODUCTION TO ROLE DATA_ANALYST;
+GRANT SELECT ON TABLE FACTURES_PRODUCTION TO ROLE DATA_ENGINEER;
 
+-- 5h. TEST : comparer les vues par rôle
 USE SECONDARY ROLES NONE;
 
--- SECURITY_ADMIN → voit les IBAN, SIRET, noms, adresses
+-- SECURITY_ADMIN → tout visible (IBAN, email, tél, texte brut complet)
 USE ROLE SECURITY_ADMIN;
-SELECT NO_FACTURE, LEFT(CONTENU_BRUT, 200) AS APERCU
-FROM SECURITY_WORKSHOP.PUBLIC.FACTURES_PARSED
-WHERE NO_FACTURE = 'FAC-2025-1001';
+SELECT NO_FACTURE, FOURNISSEUR, EMAIL_FOURNISSEUR, TEL_FOURNISSEUR,
+       IBAN_FOURNISSEUR, LEFT(CONTENU_BRUT, 150) AS APERCU_BRUT
+FROM SECURITY_WORKSHOP.PUBLIC.FACTURES_PRODUCTION;
 
--- DATA_ANALYST → PII masquées automatiquement par AI_REDACT
+-- DATA_ANALYST → structuré masqué (déterministe) + brut redacté (AI)
 USE ROLE DATA_ANALYST;
-SELECT NO_FACTURE, LEFT(CONTENU_BRUT, 200) AS APERCU
-FROM SECURITY_WORKSHOP.PUBLIC.FACTURES_PARSED
-WHERE NO_FACTURE = 'FAC-2025-1001';
+SELECT NO_FACTURE, FOURNISSEUR, EMAIL_FOURNISSEUR, TEL_FOURNISSEUR,
+       IBAN_FOURNISSEUR, LEFT(CONTENU_BRUT, 150) AS APERCU_BRUT
+FROM SECURITY_WORKSHOP.PUBLIC.FACTURES_PRODUCTION;
 
--- Tous les rôles voient la colonne redactée (pas de policy dessus)
-SELECT NO_FACTURE, TOTAL_TTC, LEFT(CONTENU_REDACTE, 200) AS APERCU_SAFE
-FROM SECURITY_WORKSHOP.PUBLIC.FACTURES_PARSED;
+-- DATA_ANALYST voit quand même les montants (pas de PII)
+SELECT NO_FACTURE, FOURNISSEUR, TOTAL_TTC, TVA_POURCENT
+FROM SECURITY_WORKSHOP.PUBLIC.FACTURES_PRODUCTION;
 
 
 -- ════════════════════════════════════════════════════════════
@@ -303,20 +356,34 @@ ALTER TABLE TRANSCRIPTIONS_SUPPORT
     MODIFY COLUMN TRANSCRIPTION
     UNSET MASKING POLICY;
 
-ALTER TABLE FACTURES_PARSED
+ALTER TABLE FACTURES_PRODUCTION
     MODIFY COLUMN CONTENU_BRUT
+    UNSET MASKING POLICY;
+ALTER TABLE FACTURES_PRODUCTION
+    MODIFY COLUMN IBAN_FOURNISSEUR
+    UNSET MASKING POLICY;
+ALTER TABLE FACTURES_PRODUCTION
+    MODIFY COLUMN EMAIL_FOURNISSEUR
+    UNSET MASKING POLICY;
+ALTER TABLE FACTURES_PRODUCTION
+    MODIFY COLUMN TEL_FOURNISSEUR
+    UNSET MASKING POLICY;
+ALTER TABLE FACTURES_PRODUCTION
+    MODIFY COLUMN SIRET_FOURNISSEUR
     UNSET MASKING POLICY;
 
 DROP MASKING POLICY IF EXISTS MASK_TRANSCRIPTION_PII;
 DROP MASKING POLICY IF EXISTS MASK_FACTURE_BRUT;
+DROP MASKING POLICY IF EXISTS MASK_IBAN;
+DROP MASKING POLICY IF EXISTS MASK_CONTACT;
 DROP TABLE IF EXISTS TRANSCRIPTIONS_REDACTEES;
 DROP TABLE IF EXISTS TRANSCRIPTIONS_SUPPORT;
-DROP TABLE IF EXISTS FACTURES_PARSED;
+DROP TABLE IF EXISTS FACTURES_PRODUCTION;
 DROP STAGE IF EXISTS FACTURES_PDF;
 DROP DATABASE IF EXISTS SECURITY_WORKSHOP;
 
 -- ┌───────────────────────────────────────────────────────────┐
--- │ RÉCAP MODULE 2D — CONTRÔLES PROBABILISTES                │
+-- │ RÉCAP MODULE 2C — CONTRÔLES PROBABILISTES                │
 -- │                                                          │
 -- │  Déterministe (matin)  = murs (masking, RAP, projection) │
 -- │  Probabiliste (AI)     = filets (AI_REDACT, GUARD*)      │
@@ -324,11 +391,13 @@ DROP DATABASE IF EXISTS SECURITY_WORKSHOP;
 -- │  AI_REDACT comble le fossé entre colonnes structurées     │
 -- │  (masking) et texte libre (PII dans du non-structuré).   │
 -- │                                                          │
--- │  Pattern production : AI_REDACT dans une masking policy   │
--- │  → gouvernance automatique pour le texte libre.          │
+-- │  Pattern production :                                    │
+-- │    Colonnes structurées → masking policies (déterministe) │
+-- │    Texte brut           → AI_REDACT via policy (probab.) │
 -- │                                                          │
--- │  Pipeline PDF : AI_PARSE_DOCUMENT → AI_REDACT → masking  │
--- │  → les factures sont exploitables sans exposer les PII.  │
+-- │  Pipeline PDF complet :                                  │
+-- │    AI_PARSE → AI_EXTRACT → table production              │
+-- │    → masking (structuré) + AI_REDACT (non-structuré)     │
 -- │                                                          │
 -- │  * CORTEX.GUARD n'est pas dispo sur eu-central-1         │
 -- │                                                          │
