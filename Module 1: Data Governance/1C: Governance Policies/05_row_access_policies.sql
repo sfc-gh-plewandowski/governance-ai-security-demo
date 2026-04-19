@@ -1,3 +1,4 @@
+-- CERT: D2 Data Protection & Governance (30%) — row access policies, row-level security
 -- ============================================================
 -- MODULE 1C — ÉTAPE 5 : ROW ACCESS POLICIES
 -- ============================================================

@@ -1,3 +1,4 @@
+-- CERT: D2 Data Protection & Governance (30%) — data loading, schema design for governance
 -- ============================================================
 -- MODULE 1A — ÉTAPE 2 : CHARGEMENT DES DONNÉES
 -- ============================================================

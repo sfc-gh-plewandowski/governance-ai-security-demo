@@ -1,3 +1,4 @@
+-- CERT: D2 Data Protection & Governance (30%) — tag-based masking, policy-tag association
 -- ============================================================
 -- MODULE 1C — ÉTAPE 2 : MASKING BASÉ SUR LES TAGS
 -- ============================================================

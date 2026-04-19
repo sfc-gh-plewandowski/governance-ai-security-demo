@@ -1,3 +1,4 @@
+-- CERT: D1 Access Control & Identity Management (22%) — future grants, schema-level privilege management
 -- ============================================================
 -- MODULE 1B — ÉTAPE 2 : FUTURE GRANTS
 -- ============================================================

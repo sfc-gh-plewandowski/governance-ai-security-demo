@@ -1,3 +1,4 @@
+-- CERT: D2 Data Protection & Governance (30%) + D3 Auditing (18%) — cross-role verification, policy audit
 -- ============================================================
 -- MODULE 1C — ÉTAPE 4 : VÉRIFICATION CROSS-RÔLE
 -- ============================================================

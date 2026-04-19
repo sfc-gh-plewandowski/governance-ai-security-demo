@@ -1,3 +1,4 @@
+-- CERT: D2 Data Protection & Governance (30%) — dynamic data masking, column-level security
 -- ============================================================
 -- MODULE 1C — ÉTAPE 1 : POLITIQUES DE MASKING DYNAMIQUE
 -- ============================================================

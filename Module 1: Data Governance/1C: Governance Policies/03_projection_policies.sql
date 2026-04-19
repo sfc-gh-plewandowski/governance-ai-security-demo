@@ -1,3 +1,4 @@
+-- CERT: D2 Data Protection & Governance (30%) — projection policies, column-level access restriction
 -- ============================================================
 -- MODULE 1C — ÉTAPE 3 : POLITIQUES DE PROJECTION
 -- ============================================================

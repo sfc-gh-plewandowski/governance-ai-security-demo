@@ -1,3 +1,4 @@
+-- CERT: D2 Data Protection & Governance (30%) + D3 Auditing (18%) — end-to-end governance validation
 -- ============================================================
 -- MODULE 1C — ÉTAPE 6 : LE MOMENT DE VÉRITÉ (THE PAYOFF)
 -- ============================================================

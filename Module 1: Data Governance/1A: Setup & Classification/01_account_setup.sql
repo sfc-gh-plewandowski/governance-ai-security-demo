@@ -1,3 +1,4 @@
+-- CERT: D2 Data Protection & Governance (30%) + D1 Access Control (22%) — account setup, warehouses, roles
 -- ============================================================
 -- MODULE 1A — ÉTAPE 1 : CONFIGURATION DU COMPTE
 -- ============================================================

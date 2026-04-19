@@ -1,3 +1,4 @@
+-- CERT: D2 Data Protection & Governance (30%) — custom classifiers, classification profiles, auto-tagging
 -- ============================================================
 -- MODULE 1A — ÉTAPE 4 : CUSTOM CLASSIFIERS & PROFIL
 -- ============================================================

@@ -1,3 +1,4 @@
+-- CERT: D1 Access Control & Identity Management (22%) — RBAC hierarchy, functional roles, least privilege
 -- ============================================================
 -- MODULE 1B — ÉTAPE 1 : ARCHITECTURE RBAC
 -- ============================================================

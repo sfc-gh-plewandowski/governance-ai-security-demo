@@ -1,3 +1,4 @@
+-- CERT: D2 Data Protection & Governance (30%) — SYSTEM$CLASSIFY, semantic/privacy categories, tagging
 -- ============================================================
 -- MODULE 1A — ÉTAPE 3 : DÉCOUVERTE — SYSTEM$CLASSIFY
 -- ============================================================
