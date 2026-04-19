@@ -4,7 +4,6 @@
 -- Contrôle granulaire de l'accès AI au niveau rôle :
 --   1. Model RBAC         → rôles applicatifs par modèle (GA 2025)
 --   2. Feature Access     → database roles par fonctionnalité Cortex
---   3. LLM Privileges     → USE AI FUNCTIONS au niveau compte
 --
 -- Pré-requis : Module 2A exécuté
 -- ============================================================
@@ -216,73 +215,16 @@ GRANT DATABASE ROLE SNOWFLAKE.CORTEX_USER TO ROLE PUBLIC;
 
 
 -- ════════════════════════════════════════════════════════════
--- ACTE 3 : LLM PRIVILEGES — USE AI FUNCTIONS ON ACCOUNT
--- ════════════════════════════════════════════════════════════
--- Privilège de niveau COMPTE, indépendant des database roles.
--- Par défaut : USE AI FUNCTIONS est GRANTED à PUBLIC.
---
--- Un utilisateur a besoin des DEUX pour appeler une fonction AI :
---   1. USE AI FUNCTIONS ON ACCOUNT  (account-level privilege)
---   2. CORTEX_USER ou AI_FUNCTIONS_USER (database role)
---
--- Si l'un des deux manque → accès refusé.
--- USE AI FUNCTIONS ne contrôle PAS quel modèle est accessible.
--- C'est un interrupteur général ON/OFF pour les fonctions AI.
---
--- Géré uniquement par ACCOUNTADMIN.
-
--- 3a. Vérifier l'état actuel du privilège
-SHOW GRANTS ON ACCOUNT;
--- Chercher la ligne : USE AI FUNCTIONS | ROLE | PUBLIC
-
--- 3b. DEMO : révoquer USE AI FUNCTIONS de PUBLIC
--- Après cette révocation, même un rôle avec CORTEX_USER
--- ne pourra plus appeler de fonction AI.
-REVOKE USE AI FUNCTIONS ON ACCOUNT FROM ROLE PUBLIC;
-
--- 3c. TEST — DATA_ANALYST a toujours CORTEX_USER (via PUBLIC hérité)
--- mais n'a plus USE AI FUNCTIONS → bloqué
-USE ROLE DATA_ANALYST;
-USE WAREHOUSE WORKSHOP_WH;
-USE SECONDARY ROLES NONE;
-
--- ❌ Bloqué : USE AI FUNCTIONS manquant
-SELECT SNOWFLAKE.CORTEX.COMPLETE(
-  'mistral-large2',
-  'Ce message ne devrait pas passer — USE AI FUNCTIONS révoqué.'
-) AS ANALYST_BLOQUE_SANS_PRIVILEGE;
-
--- 3d. Accorder USE AI FUNCTIONS à des rôles spécifiques
-USE ROLE ACCOUNTADMIN;
-
-GRANT USE AI FUNCTIONS ON ACCOUNT TO ROLE DATA_ANALYST;
-GRANT USE AI FUNCTIONS ON ACCOUNT TO ROLE DATA_ENGINEER;
-GRANT USE AI FUNCTIONS ON ACCOUNT TO ROLE SECURITY_ADMIN;
-
--- 3e. TEST — DATA_ANALYST a maintenant USE AI FUNCTIONS → OK
-USE ROLE DATA_ANALYST;
-USE WAREHOUSE WORKSHOP_WH;
-USE SECONDARY ROLES NONE;
-
--- ✅ USE AI FUNCTIONS restauré pour ce rôle
-SELECT SNOWFLAKE.CORTEX.COMPLETE(
-  'mistral-large2',
-  'USE AI FUNCTIONS rétabli — l''accès fonctionne.'
-) AS ANALYST_PRIVILEGE_RESTAURE;
-
--- 3f. NETTOYAGE Acte 3
-USE ROLE ACCOUNTADMIN;
-
-REVOKE USE AI FUNCTIONS ON ACCOUNT FROM ROLE DATA_ANALYST;
-REVOKE USE AI FUNCTIONS ON ACCOUNT FROM ROLE DATA_ENGINEER;
-REVOKE USE AI FUNCTIONS ON ACCOUNT FROM ROLE SECURITY_ADMIN;
-
--- Restaurer l'accès global
-GRANT USE AI FUNCTIONS ON ACCOUNT TO ROLE PUBLIC;
-
-
--- ════════════════════════════════════════════════════════════
 -- RESET
+-- ════════════════════════════════════════════════════════════
+-- Note : le privilège USE AI FUNCTIONS ON ACCOUNT (accordé à
+-- PUBLIC par défaut) est aussi requis pour appeler les fonctions
+-- AI. Il fait double emploi avec les database roles ci-dessus.
+-- En production, les database roles suffisent pour le contrôle
+-- granulaire. USE AI FUNCTIONS sert de kill-switch global si
+-- nécessaire :
+--   REVOKE USE AI FUNCTIONS ON ACCOUNT FROM ROLE PUBLIC;
+--   GRANT USE AI FUNCTIONS ON ACCOUNT TO ROLE <role>;
 -- ════════════════════════════════════════════════════════════
 USE ROLE ACCOUNTADMIN;
 USE SECONDARY ROLES ALL;
@@ -302,11 +244,8 @@ USE SECONDARY ROLES ALL;
 -- │   • Chaque rôle reçoit les features nécessaires          │
 -- │   • AI_FUNCTIONS_USER, CORTEX_AGENT_USER,                │
 -- │     CORTEX_EMBED_USER = segmentation fine                │
--- │                                                          │
--- │  Acte 3 — LLM Privileges (account-level)                 │
--- │   • USE AI FUNCTIONS ON ACCOUNT = interrupteur global     │
--- │   • Requis EN PLUS des database roles                    │
--- │   • Révocation de PUBLIC → grant ciblé par rôle          │
+-- │   • Note : USE AI FUNCTIONS ON ACCOUNT est un            │
+-- │     kill-switch global supplémentaire (PUBLIC défaut)     │
 -- │                                                          │
 -- │  → Module 2C : AI_REDACT — contrôles probabilistes       │
 -- └───────────────────────────────────────────────────────────┘
